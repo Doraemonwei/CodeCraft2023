@@ -1,14 +1,9 @@
 #!/bin/bash
 import math
 import sys
+from collections import defaultdict
 
 from load_map import read_map_util_ok
-
-# 任务队列，将所有的任务都放在一个队列中，先进先出
-#  任务队列格式 "010"+str(task_id),前两位是目标工作台id，第三位是操作，0表示去买，1表示去卖, task_id
-#    用来唯一标记这个任务，判断这个任务有没有被执行
-#  初始时没有任务，其实是有任务的，但是初始化地图时先不分配，等到开始交互了再分配
-tasks = []
 
 # 全局记录机器人的状态，''表示没有任务, 其他的就跟上面一样表示要去的工作台id和达到之后需要进行的操作
 robots_status = ['', '', '', '']
@@ -42,7 +37,7 @@ def read_status():
                 m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4])])
         else:
             t = s_input.split(' ')
-            # [工作台id，携带物品类型，时间价值系数，碰撞价值系数, 角速度，线速度[x,y]，朝向，坐标[x,y]]
+            # [可以交易的工作台id，携带物品类型，时间价值系数，碰撞价值系数, 角速度，线速度[x,y]，朝向，坐标[x,y]]
             m_robots.append([int(t[0]), int(t[1]), float(t[2]), float(t[3]), float(t[4]), [float(t[5]), float(t[6])],
                              float(t[7]), [float(t[8]), float(t[9])]])
             for i in range(3):
@@ -95,32 +90,71 @@ def cal_instruct(robot_loc, robot_angle, bench_loc):
     return [n_line_speed, n_angle_speed]
 
 
-# 检查是否有机器人已经达到目标工作台，如果有，执行买卖任务
-#   遍历四个机器人的任务，如果有身上背着任务的而且已经达到目标工作台了，则执行任务并且将状态改成''
-def do_task():
-    # 返回的是这一帧机器人是否需要买卖，0是买，1是卖，-1是不操作
-    re_sell_buy = [-1, -1, -1, -1]
-    for ind, t in enumerate(robots_status):
-        if t == '':
+# 帮助函数，传进来工作台类型和原材料格子状态，返回差的材料类型
+each_bench_materials = {4: {1, 2}, 5: {1, 3}, 6: {2, 3}, 7: {4, 5, 6}, 8: {7}, 9: {1, 2, 3, 4, 5, 6, 7}}  # 方便判断缺不缺材料
+
+
+def lack_which_material(bench_type, material_status):
+    had_material = set()
+    for i in range(10):
+        if (material_status >> i) & 1 == 1:
+            had_material.add(i)
+    lack_material = each_bench_materials[bench_type] - had_material
+    return list(lack_material)
+
+
+# 对于每一帧，初始化四个参数，分别记录：
+# 1、type_lack,全场每一种物品缺多少,0就是不缺
+# 2、robot_carry, 每一个机器人身上都携带着什么类型的物品，没有就是-1
+# 3、each_lack, 对于缺的物品种类，按照种类分成若干份，记录是哪个工作台缺的，以及这个工作台的坐标
+# 4、done_bench, 对于已经有成品的工作台，按照成品的种类将这些工作台分类，记录工作台id和坐标
+# 5、each_lack_num, 每一种材料缺的数量-有机器人正在运输的数量，得到每一种材料真正缺少的数量
+def init_frame():
+    type_lack = [0] * 8  # 一共其中物品，分别用索引表示, 索引0并不存在，永远是0
+    each_lack = defaultdict(lambda: [])
+    done_bench = defaultdict(lambda: [])
+    for bench in n_benches:
+        # 工作台123不需要原材料, 但是可能有成品
+        if bench[1] in [1, 2, 3]:
+            if bench[5] == 1:
+                # 对于工作台123，工作台类型就是产品的类型
+                done_bench[bench[1]].append([bench[0], bench[2]])
             continue
-        # 检查这一帧判题器传过来的机器人状态，判断是否可以进行操作
-        for rind, r in enumerate(n_robots):
-            if r[0] == int(robots_status[ind][:2]):
-                re_sell_buy[ind] = int(r[2])
-                robots_status[ind] = ''
-    return re_sell_buy
+        for lack_m in lack_which_material(bench[1], bench[3]):
+            type_lack[lack_m] += 1
+            each_lack[lack_m].append([bench[0], bench[2]])  # 注意bench[2]本来就是个列表[x,y]
+        # 循环能到这里说明不是123，89又没有产品
+        if bench[1] not in [8, 9]:
+            if bench[5] == 1:
+                done_bench[bench[1]].append([bench[0], bench[2]])
+    robot_carry = [0] * 10  #  9种材料，哪些被机器人带着的
+
+    each_lack_num = [0]*8 # 1-7，  7种材料分别实际还缺多少
+
+    # 初始化就是不管当前正在运输的材料的数量，只看缺的
+    for lack_type, lack_num in each_lack.items():
+        each_lack_num[lack_type] = len(lack_num)
+
+    # 记录机器人一共携带了多少个什么类型的材料
+    for ind, robot in enumerate(n_robots):
+        robot_carry[robot[1]] += 1
+
+    # 将缺少的材料的个数-已经正在运输中的这个材料的个数
+    for ind, lack_num in enumerate(robot_carry):
+        if lack_num!=0:
+            each_lack_num[ind] -= lack_num
+
+    return type_lack, robot_carry, each_lack, done_bench, each_lack_num
 
 
-# 从任务队列中拿任务分配给机器人
-def allocating_task():
-    pass
+def task_process():
+    # 分别对每一个机器人进行操作，机器人id是0123
+    # 首先是0号机器人
+    #    如果0号机器人没有携带
+    if n_robots[0][1]==0:
 
 
-# 生成任务并推进队列
-#   这一块是将来优化的关键点
-def generate_task():
 
-    pass
 
 
 
@@ -140,6 +174,8 @@ if __name__ == '__main__':
         frame_id = int(parts[0])
         # 读取信息并得到当前工作台和机器人的状态信息
         n_benches, n_robots = read_status()
+        # 处理好每一帧需要的4个数据
+        n_type_lack, n_robot_carry, n_each_lack, n_done_bench, n_each_lack_num = init_frame()
 
         sys.stdout.write('%d\n' % frame_id)
         line_speed, angle_speed = 3, 1.5
