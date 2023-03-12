@@ -22,9 +22,9 @@ def lack_which_material(bench_type, material_status):
     lack_material = each_bench_materials[bench_type] - had_material
     return list(lack_material)
 
-print(lack_which_material(4,0))
+# print(lack_which_material(4,0))
 
-lac = {}
+print(3.9/2)
 
 
 T2 = time.perf_counter()
