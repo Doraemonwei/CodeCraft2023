@@ -20,12 +20,8 @@ def lack_which_material(bench_type, material_status):
         if (material_status >> i) & 1 == 1:
             had_material.add(i)
     lack_material = each_bench_materials[bench_type] - had_material
-    return list(lack_material)
-
-# print(lack_which_material(4,0))
-
-print(3.9/2)
-
+    test_write_file('bench:{}'.format(bench_type)+str(lack_material)+' '+ str(had_material))
+    return list(lack_material), len(had_material)
 
 T2 = time.perf_counter()
 print('程序运行时间:%s毫秒' % ((T2 - T1) * 1000))

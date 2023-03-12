@@ -28,11 +28,11 @@ def read_status():
             bench_id = 0  # 记录工作台的唯一id,其实就是在m_benched中的索引
             t = s_input.split(' ')
             # [工作台id, 工作台类型，[x,y], 剩余生产时间（帧）， 原材料状态（转成二进制使用）， 产品格状态]
-            m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4])])
+            m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
             for j in range(K - 1):
                 bench_id += 1
                 t = input().split(' ')
-                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4])])
+                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
         else:
             t = s_input.split(' ')
             # [可以交易的工作台id，携带物品类型，时间价值系数，碰撞价值系数, 角速度，线速度[x,y]，朝向，坐标[x,y]]
@@ -45,6 +45,7 @@ def read_status():
                      float(t[7]), [float(t[8]), float(t[9])]])
         s_input = input()
         row += 1
+    # test_write_file(m_benches)
     return m_benches, m_robots
 
 
@@ -60,7 +61,7 @@ def cal_instruct(robot_loc, robot_angle, bench_loc):
 
     distance = math.sqrt((r_x - b_x) ** 2 + (r_y - b_y) ** 2)  # 当前机器人与工作台的距离
 
-    n_line_speed = 2
+    n_line_speed = 3.5
     n_angle_speed = 0
     if r2b_a >= 0 and robot_angle >= 0:
         if robot_angle > r2b_a:
@@ -83,7 +84,7 @@ def cal_instruct(robot_loc, robot_angle, bench_loc):
         else:
             n_angle_speed = -3
 
-    if distance >= 6:
+    if distance >= 1.5:
         n_line_speed = 6
     return [n_line_speed, n_angle_speed]
 
@@ -99,6 +100,7 @@ def lack_which_material(bench_type, material_status):
         if (material_status >> i) & 1 == 1:
             had_material.add(i)
     lack_material = each_bench_materials[bench_type] - had_material
+    # test_write_file('bench:{}'.format(bench_type)+str(lack_material)+' '+ str(had_material)+' '+ str(material_status))
     return list(lack_material), len(had_material)
 
 
@@ -121,12 +123,13 @@ def init_frame():
     for bench in n_benches:
         # 工作台123不需要原材料, 但是可能有成品
         if bench[1] in [1, 2, 3]:
-            # print('bench:{}'.format(bench))
+            # 如果有产品
             if bench[5] == 1:
                 # 对于工作台123，工作台类型就是产品的类型
-                done_bench[bench[1]].append([bench[0], bench[2]])
+                done_bench[bench[1]].append([bench[0], bench[2]]) # 记录工作台id和坐标
             continue
-        lack_m, had_len = lack_which_material(bench[1], bench[3])
+        # test_write_file(bench)
+        lack_m, had_len = lack_which_material(bench[1], bench[4])  # 我自己设置的bench的存储方式比官方的在第一位多一个id
         for m in lack_m:
             type_lack[m] += 1
             # 注意bench[2]本来就是个列表[x,y], had_len就是这个工作台已经有材料的数量
@@ -139,6 +142,7 @@ def init_frame():
 
     each_lack_num = [0] * 8  # 1-7，  7种材料分别实际还缺多少
 
+    # test_write_file('each_lack: {}'.format(each_lack))
     # 初始化就是不管当前正在运输的材料的数量，只看缺的
     for lack_type, lack_num in each_lack.items():
         each_lack_num[lack_type] = len(lack_num)
@@ -151,7 +155,6 @@ def init_frame():
     for ind, lack_num in enumerate(robot_carry):
         if lack_num != 0:
             each_lack_num[ind] -= lack_num
-
     return type_lack, robot_carry, each_lack, done_bench, each_lack_num
 
 
@@ -171,6 +174,8 @@ def task_process():
         else:
             # 首先把所有缺的物品对应的已经生产好了的工作台放到列表中，注意，可能这个列表位空。因为可能这个缺的物品一个都没有生产出来
             l_d_m = []  # 缺少的但是已经做好了的物品对应的工作台，这个工作台的与1号机器人的距离和这个工作台的id
+            # test_write_file('n_done_bench: {}'.format(n_done_bench))
+            # test_write_file('n_each_lack_num: {}'.format(n_each_lack_num))
             for k, v in n_done_bench.items():
                 if n_each_lack_num[k] != 0:
                     # 因为n_done_bench这个字典的值是列表类型，所以需要遍历一个个取
@@ -179,7 +184,8 @@ def task_process():
                                                    n_robots[0][7][1],
                                                    bench[1][0],
                                                    bench[1][1]), bench[0]])
-
+            # test_write_file('缺少的但是已经做好了的物品: ')
+            # test_write_file(l_d_m)
             # 如果已经有缺少的成品被生产出来了在进行下面的操作，否则就直接不改变默认的速度设定，也就是全0
             if l_d_m:
                 l_d_m.sort()  # 按照距离从小到大排序，取第一个
@@ -253,8 +259,8 @@ def task_process():
                 # 当前不能交易，则向着目标工作台移动
                 else:
                     # r_instruct_1是计算出来的1号机器人需要执行的命令
-                    r_instruct_1 = cal_instruct(n_robots[0][7],
-                                                n_robots[0][6],
+                    r_instruct_1 = cal_instruct(n_robots[1][7],
+                                                n_robots[1][6],
                                                 n_benches[each_not_carry_robot_toward_bench[1]][2])
                     each_robot_act[1][0] = r_instruct_1[0]  # 线速度
                     each_robot_act[1][1] = r_instruct_1[1]  # 角速度
@@ -485,10 +491,12 @@ def task_process():
             n_robots[3][1] = 0  # 卖掉之后就没有携带物品了
         # 不能卖，向它靠近
         else:
+
             target_bench_id = each_carry_robot_toward_bench[3]
             r_instruct_3 = cal_instruct(n_robots[3][7], n_robots[3][6], n_benches[target_bench_id][2])
-            each_robot_act[2][0] = r_instruct_3[0]  # 线速度
-            each_robot_act[2][1] = r_instruct_3[1]  # 角速度
+            each_robot_act[3][0] = r_instruct_3[0]  # 线速度
+            each_robot_act[3][1] = r_instruct_3[1]  # 角速度
+            # test_write_file(str(frame_id) + '老四判定' + str(r_instruct_3))
     return each_robot_act
 
 
@@ -496,6 +504,11 @@ def task_process():
 def read_map_util_ok():
     while input() != "OK":
         pass
+
+
+def test_write_file(a):
+    with open("test_file.txt", "a", encoding='utf-8') as variable_name:
+        variable_name.write(str(a)+'\n')
 
 
 if __name__ == '__main__':
@@ -511,12 +524,14 @@ if __name__ == '__main__':
             break
         parts = line.split(' ')
         frame_id = int(parts[0])
+        # test_write_file(frame_id)
         # 读取信息并得到当前工作台和机器人的状态信息
         n_benches, n_robots = read_status()
         # 处理好每一帧需要的4个数据
         n_type_lack, n_robot_carry, n_each_lack, n_done_bench, n_each_lack_num = init_frame()
         # 这一帧每个机器人应该执行的操作
         n_each_robot_act = task_process()
+        test_write_file(n_each_robot_act)
         sys.stdout.write('%d\n' % frame_id)
         for ind, act in enumerate(n_each_robot_act):
             sys.stdout.write('forward %d %d\n' % (ind, act[0]))

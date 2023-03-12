@@ -1,1 +1,1 @@
-robot_gui.exe "python SDK\python\main.py" -m maps\2.txt
+robot_gui.exe "python SDK\python\main.py" -m maps\1.txt
