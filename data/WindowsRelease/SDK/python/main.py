@@ -61,37 +61,35 @@ def cal_instruct(robot_loc, robot_angle, bench_loc):
 
     distance = math.sqrt((r_x - b_x) ** 2 + (r_y - b_y) ** 2)  # 当前机器人与工作台的距离
 
-    n_line_speed = 3
+    n_line_speed = 6
     n_angle_speed = 0
-    # 如果距离>2m,就每隔10帧调整一次方向
-    if distance >= 2:
-        n_line_speed = 6
 
+    if distance <= 1:
+        n_line_speed = 2 + (distance) ** 3
+
+    or_angle_value = abs(robot_angle - r2b_a) * 50
     if r2b_a >= 0 and robot_angle >= 0:
         if robot_angle > r2b_a:
-            n_angle_speed = -3
+            n_angle_speed = -1 * or_angle_value
         elif robot_angle < r2b_a:
-            n_angle_speed = 3
+            n_angle_speed = or_angle_value
     elif r2b_a < 0 and robot_angle < 0:
         if robot_angle > r2b_a:
-            n_angle_speed = -3
+            n_angle_speed = -or_angle_value
         elif robot_angle < r2b_a:
-            n_angle_speed = 3
+            n_angle_speed = or_angle_value
     elif r2b_a < 0 and robot_angle > 0:
-        if abs(r2b_a) + abs(robot_angle) <= math.pi:
-            n_angle_speed = -3
+        if abs(r2b_a) + abs(robot_angle) < math.pi:
+            n_angle_speed = -or_angle_value
         else:
-            n_angle_speed = 3
+            n_angle_speed = or_angle_value
     else:
-        if abs(r2b_a) + abs(robot_angle) <= math.pi:
-            n_angle_speed = 3
+        if abs(r2b_a) + abs(robot_angle) < math.pi:
+            n_angle_speed = or_angle_value
         else:
-            n_angle_speed = -3
+            n_angle_speed = -or_angle_value
+
     return [n_line_speed, n_angle_speed]
-
-
-
-
 
 
 # 帮助函数
