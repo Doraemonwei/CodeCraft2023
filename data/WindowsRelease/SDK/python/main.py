@@ -52,7 +52,7 @@ def read_status():
 # 计算这一帧所有这个机器人应该执行的指令
 #    机器人当前的坐标，机器人当前的角度,目标工作台的坐标
 #    输出的是这一帧的这个机器人线速度和角度
-def cal_instruct(robot_loc, robot_angle, bench_loc):
+def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc):
     r_x, r_y = robot_loc[0], robot_loc[1]
     b_x, b_y = bench_loc[0], bench_loc[1]
 
@@ -65,9 +65,16 @@ def cal_instruct(robot_loc, robot_angle, bench_loc):
     n_angle_speed = 0
 
     if distance <= 1:
-        n_line_speed = 2 + (distance) ** 3
+        n_line_speed = 2 + (distance) ** 2
+
+    if is_carry == 1 and (b_x <= 2 or b_x >= 48 or b_y <= 2 or b_y >= 48 and distance <= 2):
+        n_line_speed = 2 + (distance)
+
+    if abs(robot_angle - r2b_a) > math.pi / 2:
+        n_angle_speed = 2
 
     or_angle_value = abs(robot_angle - r2b_a) * 50
+
     if r2b_a >= 0 and robot_angle >= 0:
         if robot_angle > r2b_a:
             n_angle_speed = -1 * or_angle_value
@@ -198,7 +205,8 @@ def task_process():
                     n_robots[0][1] = n_benches[l_d_m[0][1]][1]  # 购买之后机器人1身上携带的就是这个材料
                 else:
                     # r_instruct_0是计算出来的0号机器人需要执行的命令
-                    r_instruct_0 = cal_instruct(n_robots[0][7],
+                    r_instruct_0 = cal_instruct(0,
+                                                n_robots[0][7],
                                                 n_robots[0][6],
                                                 n_benches[l_d_m[0][1]][2])
                     each_robot_act[0][0] = r_instruct_0[0]  # 线速度
@@ -224,7 +232,7 @@ def task_process():
         # 如果这个机器人不能与目标工作台交易，则向他移动
         else:
             target_bench_id = need_0_type_m_benches[0][1]
-            r_instruct_0 = cal_instruct(n_robots[0][7], n_robots[0][6], n_benches[target_bench_id][2])
+            r_instruct_0 = cal_instruct(1, n_robots[0][7], n_robots[0][6], n_benches[target_bench_id][2])
             each_robot_act[0][0] = r_instruct_0[0]  # 线速度
             each_robot_act[0][1] = r_instruct_0[1]  # 角速度
             each_carry_robot_toward_bench[0] = target_bench_id
@@ -262,7 +270,7 @@ def task_process():
                 # 当前不能交易，则向着目标工作台移动
                 else:
                     # r_instruct_1是计算出来的1号机器人需要执行的命令
-                    r_instruct_1 = cal_instruct(n_robots[1][7],
+                    r_instruct_1 = cal_instruct(0, n_robots[1][7],
                                                 n_robots[1][6],
                                                 n_benches[each_not_carry_robot_toward_bench[1]][2])
                     each_robot_act[1][0] = r_instruct_1[0]  # 线速度
@@ -297,7 +305,7 @@ def task_process():
         # 不能卖，向它靠近
         else:
             target_bench_id = each_carry_robot_toward_bench[1]
-            r_instruct_1 = cal_instruct(n_robots[1][7], n_robots[1][6], n_benches[target_bench_id][2])
+            r_instruct_1 = cal_instruct(1, n_robots[1][7], n_robots[1][6], n_benches[target_bench_id][2])
             each_robot_act[1][0] = r_instruct_1[0]  # 线速度
             each_robot_act[1][1] = r_instruct_1[1]  # 角速度
     # 1号机器人处理完毕，下面是2号机器人
@@ -334,7 +342,7 @@ def task_process():
                 # 当前不能交易，则向着目标工作台移动
                 else:
                     # r_instruct_2是计算出来的2号机器人需要执行的命令
-                    r_instruct_2 = cal_instruct(n_robots[2][7],
+                    r_instruct_2 = cal_instruct(0, n_robots[2][7],
                                                 n_robots[2][6],
                                                 n_benches[each_not_carry_robot_toward_bench[2]][2])
                     each_robot_act[2][0] = r_instruct_2[0]  # 线速度
@@ -381,7 +389,7 @@ def task_process():
         # 不能卖，向它靠近
         else:
             target_bench_id = each_carry_robot_toward_bench[2]
-            r_instruct_2 = cal_instruct(n_robots[2][7], n_robots[2][6], n_benches[target_bench_id][2])
+            r_instruct_2 = cal_instruct(1, n_robots[2][7], n_robots[2][6], n_benches[target_bench_id][2])
             each_robot_act[2][0] = r_instruct_2[0]  # 线速度
             each_robot_act[2][1] = r_instruct_2[1]  # 角速度
     # 机器人2处理完毕，下面是机器人3
@@ -419,7 +427,7 @@ def task_process():
                 # 当前不能交易，则向着目标工作台移动
                 else:
                     # r_instruct_3是计算出来的3号机器人需要执行的命令
-                    r_instruct_3 = cal_instruct(n_robots[3][7],
+                    r_instruct_3 = cal_instruct(0, n_robots[3][7],
                                                 n_robots[3][6],
                                                 n_benches[each_not_carry_robot_toward_bench[3]][2])
                     each_robot_act[3][0] = r_instruct_3[0]  # 线速度
@@ -496,7 +504,7 @@ def task_process():
         else:
 
             target_bench_id = each_carry_robot_toward_bench[3]
-            r_instruct_3 = cal_instruct(n_robots[3][7], n_robots[3][6], n_benches[target_bench_id][2])
+            r_instruct_3 = cal_instruct(1, n_robots[3][7], n_robots[3][6], n_benches[target_bench_id][2])
             each_robot_act[3][0] = r_instruct_3[0]  # 线速度
             each_robot_act[3][1] = r_instruct_3[1]  # 角速度
             # test_write_file(str(frame_id) + '老四判定' + str(r_instruct_3))
