@@ -61,8 +61,12 @@ def cal_instruct(robot_loc, robot_angle, bench_loc):
 
     distance = math.sqrt((r_x - b_x) ** 2 + (r_y - b_y) ** 2)  # 当前机器人与工作台的距离
 
-    n_line_speed = 3.5
+    n_line_speed = 3
     n_angle_speed = 0
+    # 如果距离>2m,就每隔10帧调整一次方向
+    if distance >= 2:
+        n_line_speed = 6
+
     if r2b_a >= 0 and robot_angle >= 0:
         if robot_angle > r2b_a:
             n_angle_speed = -3
@@ -83,10 +87,11 @@ def cal_instruct(robot_loc, robot_angle, bench_loc):
             n_angle_speed = 3
         else:
             n_angle_speed = -3
-
-    if distance >= 1.5:
-        n_line_speed = 6
     return [n_line_speed, n_angle_speed]
+
+
+
+
 
 
 # 帮助函数
@@ -126,7 +131,7 @@ def init_frame():
             # 如果有产品
             if bench[5] == 1:
                 # 对于工作台123，工作台类型就是产品的类型
-                done_bench[bench[1]].append([bench[0], bench[2]]) # 记录工作台id和坐标
+                done_bench[bench[1]].append([bench[0], bench[2]])  # 记录工作台id和坐标
             continue
         # test_write_file(bench)
         lack_m, had_len = lack_which_material(bench[1], bench[4])  # 我自己设置的bench的存储方式比官方的在第一位多一个id
@@ -508,7 +513,7 @@ def read_map_util_ok():
 
 def test_write_file(a):
     with open("test_file.txt", "a", encoding='utf-8') as variable_name:
-        variable_name.write(str(a)+'\n')
+        variable_name.write(str(a) + '\n')
 
 
 if __name__ == '__main__':
@@ -531,7 +536,7 @@ if __name__ == '__main__':
         n_type_lack, n_robot_carry, n_each_lack, n_done_bench, n_each_lack_num = init_frame()
         # 这一帧每个机器人应该执行的操作
         n_each_robot_act = task_process()
-        test_write_file(n_each_robot_act)
+        # test_write_file(n_each_robot_act)
         sys.stdout.write('%d\n' % frame_id)
         for ind, act in enumerate(n_each_robot_act):
             sys.stdout.write('forward %d %d\n' % (ind, act[0]))
