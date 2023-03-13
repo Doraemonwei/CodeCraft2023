@@ -67,9 +67,6 @@ def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc):
     if distance <= 1:
         n_line_speed = 2 + (distance) ** 2
 
-    if is_carry == 1 and (b_x <= 2 or b_x >= 48 or b_y <= 2 or b_y >= 48 and distance <= 2):
-        n_line_speed = 2 + (distance)
-
     if abs(robot_angle - r2b_a) > math.pi / 2:
         n_angle_speed = 2
 
@@ -100,7 +97,7 @@ def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc):
 
 
 # 帮助函数
-# 传进来工作台类型和原材料格子状态，返回差的材料类型
+# 传进来工作台类型和原材料格子状态，返回这个工作台差的材料类型
 each_bench_materials = {4: {1, 2}, 5: {1, 3}, 6: {2, 3}, 7: {4, 5, 6}, 8: {7}, 9: {1, 2, 3, 4, 5, 6, 7}}  # 方便判断缺不缺材料
 
 
@@ -110,7 +107,7 @@ def lack_which_material(bench_type, material_status):
         if (material_status >> i) & 1 == 1:
             had_material.add(i)
     lack_material = each_bench_materials[bench_type] - had_material
-    # test_write_file('bench:{}'.format(bench_type)+str(lack_material)+' '+ str(had_material)+' '+ str(material_status))
+
     return list(lack_material), len(had_material)
 
 
@@ -163,8 +160,10 @@ def init_frame():
 
     # 将缺少的材料的个数-已经正在运输中的这个材料的个数
     for ind, lack_num in enumerate(robot_carry):
-        if lack_num != 0:
+        if lack_num != 0 and ind != 0:
             each_lack_num[ind] -= lack_num
+    # if frame_id % 10 == 0:
+    #     test_write_file(each_lack_num)
     return type_lack, robot_carry, each_lack, done_bench, each_lack_num
 
 
@@ -224,7 +223,7 @@ def task_process():
                                                        bench[1][0],
                                                        bench[1][1]) / (bench[2] + 1),
                                           bench[0]])
-        need_0_type_m_benches.sort()  # 安装加权距离进行排序
+        need_0_type_m_benches.sort()  # 按照加权距离进行排序
         # 判断排在第一位的工作台是否可以与机器人0交易，如果可以直接卖
         if n_robots[0][0] == need_0_type_m_benches[0][1]:
             each_robot_act[0][2] = 1  # 卖出
@@ -243,7 +242,6 @@ def task_process():
         # 如果全场没有缺少的，直接把速度和角速度降到0,也不用进行买卖
         if sum(n_each_lack_num) == 0:
             each_robot_act[1] = [0, 0, -1]
-
         # 如果全场有缺的，把所有生产好了的而且是缺的物品所在工作台按照与1号机器人之间的距离排队
         else:
             # 首先把所有缺的物品对应的已经生产好了的工作台放到列表中，注意，可能这个列表位空。因为可能这个缺的物品一个都没有生产出来
@@ -522,6 +520,14 @@ def test_write_file(a):
         variable_name.write(str(a) + '\n')
 
 
+# 给定当前是第几帧，判断现在应该显示几分几秒
+def cal_time(frame):
+    second, frame = divmod(frame, 50)  # 返回已经进行的秒数和余下来的帧数
+    last_second = 180 - second
+    last_min, last_second = divmod(last_second, 60)
+    return str(last_min) + ' : ' + str(last_second)
+
+
 if __name__ == '__main__':
     # 读取机器人以及工作台的初始位置信息
     read_map_util_ok()
@@ -544,10 +550,14 @@ if __name__ == '__main__':
         n_each_robot_act = task_process()
         # test_write_file(n_each_robot_act)
         sys.stdout.write('%d\n' % frame_id)
+        # 给出帧数，现在因该显示的时间,10帧输出一个
+        # if frame_id % 10 == 0:
+        #     test_write_file(cal_time(frame_id))
         for ind, act in enumerate(n_each_robot_act):
             sys.stdout.write('forward %d %d\n' % (ind, act[0]))
             sys.stdout.write('rotate %d %f\n' % (ind, act[1]))
-            if act[2] == 0:
+            # 如果最后只剩三秒了，就别买了
+            if act[2] == 0 and frame_id <= 8940:
                 sys.stdout.write('buy %d \n' % ind)
             elif act[2] == 1:
                 sys.stdout.write('sell %d \n' % ind)

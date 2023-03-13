@@ -1,1 +1,1 @@
-robot.exe "python SDK\python\main.py" -f -m maps\1.txt
+robot.exe "python SDK\python\main.py" -f -m maps\4.txt
