@@ -254,8 +254,8 @@ def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
     if distance <= 1:
         n_line_speed = 2 + (distance) ** 2
 
-    if abs(robot_angle - r2b_a) > math.pi / 2:
-        n_angle_speed = 2
+    # if abs(robot_angle - r2b_a) > math.pi / 2:
+    #     n_angle_speed = 2
 
     or_angle_value = abs(robot_angle - r2b_a) * 50
 

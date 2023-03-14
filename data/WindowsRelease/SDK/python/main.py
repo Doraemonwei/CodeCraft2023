@@ -54,11 +54,9 @@ def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
     n_line_speed = 6
     n_angle_speed = 0
 
-    if distance <= 1:
-        n_line_speed = 2 + (distance) ** 2
-
-    if abs(robot_angle - r2b_a) > math.pi / 2:
-        n_angle_speed = 2
+    if distance <= 3.5 and abs(robot_angle - r2b_a) >= 1.5:
+        # test_write_file('in')
+        n_line_speed = 1
 
     or_angle_value = abs(robot_angle - r2b_a) * 50
 
@@ -82,12 +80,7 @@ def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
             n_angle_speed = or_angle_value
         else:
             n_angle_speed = -or_angle_value
-    # 尝试在背着物品的时候如果速度向量超过图，则将速度设置成负的
-    # if is_carry:
-    #     v_v = [r_x + n_line_speed * math.cos(robot_angle), r_y + n_line_speed * math.sin(robot_angle)]
-    #     v_v = [i*0.3 for i in v_v]
-    #     if v_v[0] < 0 or v_v[0] > 50 or v_v[1] < 0 or v_v[1] > 50:
-    #         n_angle_speed = -2
+
     return [n_line_speed, n_angle_speed]
 
 
@@ -528,10 +521,10 @@ if __name__ == '__main__':
         # if frame_id % 10 == 0:
         #     test_write_file(cal_time(frame_id))
         for ind, act in enumerate(n_each_robot_act):
-            sys.stdout.write('forward %d %d\n' % (ind, act[0]))
+            sys.stdout.write('forward %d %f\n' % (ind, act[0]))
             sys.stdout.write('rotate %d %f\n' % (ind, act[1]))
             # 如果最后只剩三秒了，就别买了
-            if act[2] == 0 and frame_id <= 8940:
+            if act[2] == 0 and frame_id <= 8800:
                 sys.stdout.write('buy %d \n' % ind)
             elif act[2] == 1:
                 sys.stdout.write('sell %d \n' % ind)
