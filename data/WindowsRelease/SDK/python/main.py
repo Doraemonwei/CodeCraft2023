@@ -47,30 +47,30 @@ def read_status():
 # 设定机器人的基本参数
 # robot parameter
 # 线速度边界
-v_max = 6.0  # m/s
-v_min = -2  # m/s
+v_max = 6.6  # m/s
+v_min = 0  # m/s
 # 角速度边界
 w_max = 3  # rad/s
 w_min = -3  # rad/s
 # 线加速度和角加速度最大值
-a_max_empty = 19.654  # m/s^2
-a_wmax_empty = 38.83  # rad/s^2
-a_vmax_carried = 14.164  # m/s^2
-a_wmax_carried = 20.17  # rad/s^2
+a_max_empty = 19 # m/s^2
+a_wmax_empty = 38  # rad/s^2
+a_vmax_carried = 14  # m/s^2
+a_wmax_carried = 20 # rad/s^2
 
 # 采样分辨率
-v_sample = 0.2  # m/s
-w_sample = 0.2  # rad/s
+v_sample = 0.5  # m/s
+w_sample = 0.5  # rad/s
 # 离散时间间隔,每一帧是50ms=0.05s
 dt = 0.05  # s =50ms
 # 轨迹推算时间长度,往后预测时间长度
-predict_time = 0.5  # [s]
+predict_time = 0.6  # [s]
 # 轨迹评价函数系数
-alpha = 1.5  # 角度
-beta = 1.5  # 距离
+alpha = 1.0  # 角度
+beta = 1  # 距离
 gamma = 1.0  # 速度
 # 机器人半径 1m,实际上是不带货0.45，带货0.53，但是为了方便计算是否碰撞，直接设置为1m,这样边界就需要扩展0.5m了
-robot_radius = 1  # m
+robot_radius = 0.55  # m
 
 
 # 机器人运动学模型，传入当前机器人状态信息，返回dt时间后的状态,dt就直接使用全局变量dt
@@ -109,10 +109,13 @@ def cal_dwv(is_carried, other_robot_loc, my_loc, v, w):
         dis = min(dis, math.sqrt((robot_loc[0] - my_loc[0]) ** 2 + (robot_loc[1] - my_loc[1]) ** 2))
     v_high_ob = math.sqrt(2 * dis * a_vmax)
     w_high_ob = math.sqrt(2 * dis * a_wmax)
+    # test_write_file(
+    #     "速度窗口各项参数v_min:{},v_max:{},v_low:{},v_high:{},v_high_ob:{}".format(v_min, v_max, v_low, v_high, v_high_ob))
     a = max(v_min, v_low)  # 机器人能达到的速度极限在目前速度条件下能通过减速到达的速度，这是最小的
     b = min(v_max, v_high, v_high_ob)  # 最大能到达的速度是由机器人自生极限，在目前速度状态下通过加速能到达的极限，被障碍限制能到达的极限
     c = max(w_min, w_low)
     d = min(w_max, w_high, w_high_ob)
+    # test_write_file("速度窗口：{}".format([a, b, c, d]))
     return [a, b, c, d]
 
 
@@ -144,10 +147,14 @@ def eval_distance(trajectory, other_robot_loc):
 
 
 # 传进估计出来的轨迹最终的最终那个点和目标点坐标之间的夹角
+#    当靠近目标点时，如果速度不减会超过目标点，导致角度评价得分很低
 def eval_heading(trajectory, goal):
     """方位角评价函数
     评估在当前采样速度下产生的轨迹终点位置方向与目标点连线的夹角的误差
     """
+    for tra in trajectory:
+        if cal_distance(tra[0], tra[1], goal[0], goal[1]) <= 0.1:
+            return math.pi
     dx = goal[0] - trajectory[-1][0]
     dy = goal[1] - trajectory[-1][1]
     error_angle = math.atan2(dy, dx)
@@ -157,7 +164,8 @@ def eval_heading(trajectory, goal):
 
 
 # 越大越好
-# 速度评价函数，可以用模拟轨迹末端位置的线速度的大小来表示
+# 速度评价函数，可以用模拟轨迹末端位置的线速度的大小来表示，有问题，不能只看这个速度的大小而不看方向
+#  这里需要优化，速度评价函数最后的输出
 def eval_velocity(trajectory):
     return trajectory[-1][3]
 
@@ -182,7 +190,7 @@ def dwa(state, goal, obstacle, is_carried):
             sum_vel += vel_eval
             sum_dist += dist_eval
             sum_heading += heading_eval
-    # test_write_file("速度区间是：{}".format(dynamic_window_vel))
+    # test_write_file("该速度区间归一化参数分别sum_heading:{}, sum_dist:{}, sum_vel为是：{}".format(sum_heading, sum_dist, sum_vel))
     # 在速度空间中按照预先设定的分辨率采样，
     for v in np.arange(dynamic_window_vel[0], dynamic_window_vel[1], v_sample):
         for w in np.arange(dynamic_window_vel[2], dynamic_window_vel[3], w_sample):
@@ -192,6 +200,9 @@ def dwa(state, goal, obstacle, is_carried):
             dist_eval = beta * eval_distance(trajectory, obstacle) / sum_dist
             vel_eval = gamma * eval_velocity(trajectory) / sum_vel
             G = heading_eval + dist_eval + vel_eval  # 第3步--轨迹评价
+            # test_write_file("这个速度方案：{}的得分是：{}".format([v, w], G))
+            # test_write_file(
+            #     "该速度区间各项打分分别为：角度：{} 距离：{} 速度：{}".format(heading_eval, dist_eval, vel_eval))
             if G_max <= G:
                 G_max = G
                 control_opt = [v, w]
