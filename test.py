@@ -4,7 +4,10 @@
 # @File : test.py
 # 这个是测试文件，用来判断自己程序的某些小问题
 import math
+from collections import defaultdict
 
 import numpy as np
 
-print(int(0.9))
+a = defaultdict(lambda :{})
+if a:
+    print(1)
