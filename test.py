@@ -3,7 +3,8 @@
 # @Author : Lanpangzi
 # @File : test.py
 # 这个是测试文件，用来判断自己程序的某些小问题
+import math
 
-import platform
-import time
-from collections import defaultdict
+import numpy as np
+
+print(int(0.9))

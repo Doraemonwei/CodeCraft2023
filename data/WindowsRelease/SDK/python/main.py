@@ -1,15 +1,10 @@
 #!/bin/bash
 import math
 import sys
+import time
 from collections import defaultdict
 
-# 全局记录机器人的状态，''表示没有任务, 其他的就跟上面一样表示要去的工作台id和达到之后需要进行的操作
-robots_status = ['', '', '', '']
-
-
-def finish():
-    sys.stdout.write('OK\n')
-    sys.stdout.flush()
+import numpy as np
 
 
 # 读取每一帧的状态
@@ -49,10 +44,191 @@ def read_status():
     return m_benches, m_robots
 
 
+# 设定机器人的基本参数
+# robot parameter
+# 线速度边界
+v_max = 6.0  # m/s
+v_min = -2  # m/s
+# 角速度边界
+w_max = 3  # rad/s
+w_min = -3  # rad/s
+# 线加速度和角加速度最大值
+a_max_empty = 19.654  # m/s^2
+a_wmax_empty = 38.83  # rad/s^2
+a_vmax_carried = 14.164  # m/s^2
+a_wmax_carried = 20.17  # rad/s^2
+
+# 采样分辨率
+v_sample = 0.2  # m/s
+w_sample = 0.2  # rad/s
+# 离散时间间隔,每一帧是50ms=0.05s
+dt = 0.05  # s =50ms
+# 轨迹推算时间长度,往后预测时间长度
+predict_time = 0.5  # [s]
+# 轨迹评价函数系数
+alpha = 1.5  # 角度
+beta = 1.5  # 距离
+gamma = 1.0  # 速度
+# 机器人半径 1m,实际上是不带货0.45，带货0.53，但是为了方便计算是否碰撞，直接设置为1m,这样边界就需要扩展0.5m了
+robot_radius = 1  # m
+
+
+# 机器人运动学模型，传入当前机器人状态信息，返回dt时间后的状态,dt就直接使用全局变量dt
+#    state就是：[x(m), y(m), yaw(rad), v(m/s), w(rad/s)]
+#    control就是对应的速度和角速度
+def KinematicModel(state, control):
+    """机器人运动学模型
+    """
+    # test_write_file('第一个state： ' + str(state))
+    state[0] += control[0] * math.cos(state[2]) * dt
+    state[1] += control[0] * math.sin(state[2]) * dt
+    state[2] += control[1] * dt
+    state[3] = control[0]
+    state[4] = control[1]
+    return state
+
+
+# 计算符合要求的速度与角速度采样空间即 速度边界限制的+加速度限制+障碍物限制
+# 传入的参数是是否携带了物品,其他三个机器人的位置信息,我自己的位置信息,以及这一瞬间的速度，角速度
+def cal_dwv(is_carried, other_robot_loc, my_loc, v, w):
+    # 速度边界限制的vm就是全局变量v_min,v_mix,w_min,w_max
+    #
+    # 加速度限制的速度范围，是否携带货物加速度是不一样的
+    a_vmax = a_max_empty if not is_carried else a_vmax_carried
+    a_wmax = a_wmax_empty if not is_carried else a_wmax_carried
+    # 由最大加速度限制的速度区间,是在目前自己速度的基础上，参考最大加速度得到的
+    v_low = v - a_vmax * dt
+    v_high = v + a_vmax * dt
+    w_low = w - a_wmax * dt
+    w_high = w + a_wmax * dt
+
+    # 障碍物限制的速度范围，障碍物只有其他三个机器人还有边界，这里暂时没有考虑边界
+    #    首先找到到达距离我最近的障碍物的距离
+    dis = float('inf')
+    for robot_loc in other_robot_loc:
+        dis = min(dis, math.sqrt((robot_loc[0] - my_loc[0]) ** 2 + (robot_loc[1] - my_loc[1]) ** 2))
+    v_high_ob = math.sqrt(2 * dis * a_vmax)
+    w_high_ob = math.sqrt(2 * dis * a_wmax)
+    a = max(v_min, v_low)  # 机器人能达到的速度极限在目前速度条件下能通过减速到达的速度，这是最小的
+    b = min(v_max, v_high, v_high_ob)  # 最大能到达的速度是由机器人自生极限，在目前速度状态下通过加速能到达的极限，被障碍限制能到达的极限
+    c = max(w_min, w_low)
+    d = min(w_max, w_high, w_high_ob)
+    return [a, b, c, d]
+
+
+# 轨迹推算函数，传入当前时刻的机器人状态[x,y,yaw,v,w]和假设这个时刻给他的速度和角速度
+def trajectory_predict(state_init, v, w):
+    # test_write_file('传进来的初始化state： ' + str(state_init))
+    trajectory = [state_init[:]]
+    _time = 0
+    # 在预测时间段内,这里是1秒
+    while _time <= predict_time:
+        # 注意这里是传入的最新一次路径的拷贝，因为KinematicModel函数会直接修改这个列表
+        x = KinematicModel(trajectory[-1], [v, w])  # 运动学模型
+        trajectory.append(x)
+        _time += dt
+    return trajectory
+
+
+def eval_distance(trajectory, other_robot_loc):
+    """
+        距离评价函数，值越大越好
+        返回这个轨迹在整个运动过程中距离障碍物的最小值，取整个过程中距离所距障碍物的最小值
+    """
+    r = float('inf')
+    for tra in trajectory:
+        for other_r in other_robot_loc:
+            # 距离计算 根号下 (x1-x2)^2+(y1-y2)^2
+            r = min(r, math.sqrt((tra[0] - other_r[0]) ** 2 + (tra[1] - other_r[1]) ** 2))
+    return r
+
+
+# 传进估计出来的轨迹最终的最终那个点和目标点坐标之间的夹角
+def eval_heading(trajectory, goal):
+    """方位角评价函数
+    评估在当前采样速度下产生的轨迹终点位置方向与目标点连线的夹角的误差
+    """
+    dx = goal[0] - trajectory[-1][0]
+    dy = goal[1] - trajectory[-1][1]
+    error_angle = math.atan2(dy, dx)
+    cost_angle = error_angle - trajectory[-1][2]
+    cost = math.pi - abs(cost_angle)
+    return cost
+
+
+# 越大越好
+# 速度评价函数，可以用模拟轨迹末端位置的线速度的大小来表示
+def eval_velocity(trajectory):
+    return trajectory[-1][3]
+
+
+# 轨迹评价函数,评价越高，轨迹越优
+# 传入当前机器人的状态[x,y,yaw,v,w]，目标点坐标goal[x,y], 其他三个机器人的坐标[[x0,y0],[x1,y1],[x2,y2]], 当前这个机器人是否背着物品
+# 返回最优控制量 [v,w]
+def dwa(state, goal, obstacle, is_carried):
+    G_max = float('-inf')  # 最优评价
+    control_opt = [0., 0.]  # 最优控制
+    dynamic_window_vel = cal_dwv(is_carried, obstacle, [state[0], state[1]], state[3], state[4])  # 计算速度空间
+    sum_heading, sum_dist, sum_vel = 0, 0, 0  # 统计全部采样轨迹的各个评价之和，便于评价的归一化
+    # 归一化
+    v_sample = (dynamic_window_vel[1] - dynamic_window_vel[0]) / 10
+    w_sample = (dynamic_window_vel[3] - dynamic_window_vel[2]) / 10
+    for v in np.arange(dynamic_window_vel[0], dynamic_window_vel[1], v_sample):
+        for w in np.arange(dynamic_window_vel[2], dynamic_window_vel[3], w_sample):
+            trajectory = trajectory_predict(state, v, w)
+            heading_eval = alpha * eval_heading(trajectory, goal)
+            dist_eval = beta * eval_distance(trajectory, obstacle)
+            vel_eval = gamma * eval_velocity(trajectory)
+            sum_vel += vel_eval
+            sum_dist += dist_eval
+            sum_heading += heading_eval
+    # test_write_file("速度区间是：{}".format(dynamic_window_vel))
+    # 在速度空间中按照预先设定的分辨率采样，
+    for v in np.arange(dynamic_window_vel[0], dynamic_window_vel[1], v_sample):
+        for w in np.arange(dynamic_window_vel[2], dynamic_window_vel[3], w_sample):
+            # test_write_file("v:{}，w:{}".format(v, w))
+            trajectory = trajectory_predict(state, v, w)  # 第2步--轨迹推算
+            heading_eval = alpha * eval_heading(trajectory, goal) / sum_heading
+            dist_eval = beta * eval_distance(trajectory, obstacle) / sum_dist
+            vel_eval = gamma * eval_velocity(trajectory) / sum_vel
+            G = heading_eval + dist_eval + vel_eval  # 第3步--轨迹评价
+            if G_max <= G:
+                G_max = G
+                control_opt = [v, w]
+    # test_write_file("此速度区间得到的速度参数：{}".format(control_opt))
+    return control_opt
+
+
 # 计算这一帧所有这个机器人应该执行的指令
 #    机器人当前的坐标，机器人当前的角度,目标工作台的坐标
 #    输出的是这一帧的这个机器人线速度和角度
-def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc):
+use_dwa = True  # 通过这个来设置是否使用dwa
+
+
+def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
+    # test_write_file('已经进入cal_instruct:{}'.format(frame_id))
+    if use_dwa:
+        # 得到当前id机器人的状态
+        #  首先是当前机器人的线速度
+        n_line_speed = math.sqrt(n_robots[robot_id][5][0] ** 2 + n_robots[robot_id][5][1] ** 2)
+        m_state = [n_robots[robot_id][7][0],
+                   n_robots[robot_id][7][1],
+                   n_robots[robot_id][6],
+                   n_line_speed,
+                   n_robots[robot_id][4]]
+        goal = bench_loc
+        other_robot_loc = []
+        for i in range(4):
+            if i != robot_id:
+                other_robot_loc.append(n_robots[i][7])
+        is_carried = is_carry
+        line_v, w = dwa(m_state, goal, other_robot_loc, is_carried)
+        # test_write_file("当前是机器人{}坐标是：{}，目标是坐标是{}, 当前机器人的方位角：{}，速度矢量：{}".format(robot_id,n_robots[robot_id][7], bench_loc,
+        #                                                                      n_robots[robot_id][6],
+        #                                                                      n_robots[robot_id][5]))
+        # test_write_file("dwa给定的速度，角速度：{}，{}".format(line_v, w))
+        return [line_v, w]
+
     r_x, r_y = robot_loc[0], robot_loc[1]
     b_x, b_y = bench_loc[0], bench_loc[1]
 
@@ -67,8 +243,8 @@ def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc):
     if distance <= 1:
         n_line_speed = 2 + (distance) ** 2
 
-    if abs(robot_angle - r2b_a) > math.pi / 2:
-        n_angle_speed = 2
+    # if abs(robot_angle - r2b_a) > math.pi / 2:
+    #     n_angle_speed = 2
 
     or_angle_value = abs(robot_angle - r2b_a) * 50
 
@@ -92,7 +268,12 @@ def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc):
             n_angle_speed = or_angle_value
         else:
             n_angle_speed = -or_angle_value
-
+    # 尝试在背着物品的时候如果速度向量超过图，则将速度设置成负的
+    # if is_carry:
+    #     v_v = [r_x + n_line_speed * math.cos(robot_angle), r_y + n_line_speed * math.sin(robot_angle)]
+    #     v_v = [i*0.3 for i in v_v]
+    #     if v_v[0] < 0 or v_v[0] > 50 or v_v[1] < 0 or v_v[1] > 50:
+    #         n_angle_speed = -2
     return [n_line_speed, n_angle_speed]
 
 
@@ -207,7 +388,8 @@ def task_process():
                     r_instruct_0 = cal_instruct(0,
                                                 n_robots[0][7],
                                                 n_robots[0][6],
-                                                n_benches[l_d_m[0][1]][2])
+                                                n_benches[l_d_m[0][1]][2],
+                                                0)
                     each_robot_act[0][0] = r_instruct_0[0]  # 线速度
                     each_robot_act[0][1] = r_instruct_0[1]  # 角速度
                     each_not_carry_robot_toward_bench[0] = n_benches[l_d_m[0][1]][0]  # 设置0号机器人要去的工作台，防止后面抢
@@ -231,7 +413,7 @@ def task_process():
         # 如果这个机器人不能与目标工作台交易，则向他移动
         else:
             target_bench_id = need_0_type_m_benches[0][1]
-            r_instruct_0 = cal_instruct(1, n_robots[0][7], n_robots[0][6], n_benches[target_bench_id][2])
+            r_instruct_0 = cal_instruct(1, n_robots[0][7], n_robots[0][6], n_benches[target_bench_id][2], 0)
             each_robot_act[0][0] = r_instruct_0[0]  # 线速度
             each_robot_act[0][1] = r_instruct_0[1]  # 角速度
             each_carry_robot_toward_bench[0] = target_bench_id
@@ -270,7 +452,8 @@ def task_process():
                     # r_instruct_1是计算出来的1号机器人需要执行的命令
                     r_instruct_1 = cal_instruct(0, n_robots[1][7],
                                                 n_robots[1][6],
-                                                n_benches[each_not_carry_robot_toward_bench[1]][2])
+                                                n_benches[each_not_carry_robot_toward_bench[1]][2],
+                                                1)
                     each_robot_act[1][0] = r_instruct_1[0]  # 线速度
                     each_robot_act[1][1] = r_instruct_1[1]  # 角速度
                     n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[1]][1]] -= 1  # 1号机器人要去这个工作台生产的材料需求-1
@@ -303,7 +486,7 @@ def task_process():
         # 不能卖，向它靠近
         else:
             target_bench_id = each_carry_robot_toward_bench[1]
-            r_instruct_1 = cal_instruct(1, n_robots[1][7], n_robots[1][6], n_benches[target_bench_id][2])
+            r_instruct_1 = cal_instruct(1, n_robots[1][7], n_robots[1][6], n_benches[target_bench_id][2], 1)
             each_robot_act[1][0] = r_instruct_1[0]  # 线速度
             each_robot_act[1][1] = r_instruct_1[1]  # 角速度
     # 1号机器人处理完毕，下面是2号机器人
@@ -342,7 +525,7 @@ def task_process():
                     # r_instruct_2是计算出来的2号机器人需要执行的命令
                     r_instruct_2 = cal_instruct(0, n_robots[2][7],
                                                 n_robots[2][6],
-                                                n_benches[each_not_carry_robot_toward_bench[2]][2])
+                                                n_benches[each_not_carry_robot_toward_bench[2]][2], 2)
                     each_robot_act[2][0] = r_instruct_2[0]  # 线速度
                     each_robot_act[2][1] = r_instruct_2[1]  # 角速度
                     n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[2]][1]] -= 1  # 2号机器人要去这个工作台生产的材料需求-1
@@ -387,7 +570,7 @@ def task_process():
         # 不能卖，向它靠近
         else:
             target_bench_id = each_carry_robot_toward_bench[2]
-            r_instruct_2 = cal_instruct(1, n_robots[2][7], n_robots[2][6], n_benches[target_bench_id][2])
+            r_instruct_2 = cal_instruct(1, n_robots[2][7], n_robots[2][6], n_benches[target_bench_id][2], 2)
             each_robot_act[2][0] = r_instruct_2[0]  # 线速度
             each_robot_act[2][1] = r_instruct_2[1]  # 角速度
     # 机器人2处理完毕，下面是机器人3
@@ -427,7 +610,8 @@ def task_process():
                     # r_instruct_3是计算出来的3号机器人需要执行的命令
                     r_instruct_3 = cal_instruct(0, n_robots[3][7],
                                                 n_robots[3][6],
-                                                n_benches[each_not_carry_robot_toward_bench[3]][2])
+                                                n_benches[each_not_carry_robot_toward_bench[3]][2],
+                                                3)
                     each_robot_act[3][0] = r_instruct_3[0]  # 线速度
                     each_robot_act[3][1] = r_instruct_3[1]  # 角速度
                     n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[3]][1]] -= 1  # 3号机器人要去这个工作台生产的材料需求-1
@@ -500,9 +684,8 @@ def task_process():
             n_robots[3][1] = 0  # 卖掉之后就没有携带物品了
         # 不能卖，向它靠近
         else:
-
             target_bench_id = each_carry_robot_toward_bench[3]
-            r_instruct_3 = cal_instruct(1, n_robots[3][7], n_robots[3][6], n_benches[target_bench_id][2])
+            r_instruct_3 = cal_instruct(1, n_robots[3][7], n_robots[3][6], n_benches[target_bench_id][2], 3)
             each_robot_act[3][0] = r_instruct_3[0]  # 线速度
             each_robot_act[3][1] = r_instruct_3[1]  # 角速度
             # test_write_file(str(frame_id) + '老四判定' + str(r_instruct_3))
@@ -528,6 +711,11 @@ def cal_time(frame):
     return str(last_min) + ' : ' + str(last_second)
 
 
+def finish():
+    sys.stdout.write('OK\n')
+    sys.stdout.flush()
+
+
 if __name__ == '__main__':
     # 读取机器人以及工作台的初始位置信息
     read_map_util_ok()
@@ -536,6 +724,7 @@ if __name__ == '__main__':
 
     while True:
         # 第一个必须由外面的循环读取，否则不能判断是否已经结束
+        start_time = time.perf_counter()
         line = sys.stdin.readline()
         if not line:
             break
@@ -554,11 +743,13 @@ if __name__ == '__main__':
         # if frame_id % 10 == 0:
         #     test_write_file(cal_time(frame_id))
         for ind, act in enumerate(n_each_robot_act):
-            sys.stdout.write('forward %d %d\n' % (ind, act[0]))
+            sys.stdout.write('forward %d %f\n' % (ind, act[0]))
             sys.stdout.write('rotate %d %f\n' % (ind, act[1]))
             # 如果最后只剩三秒了，就别买了
             if act[2] == 0 and frame_id <= 8940:
                 sys.stdout.write('buy %d \n' % ind)
             elif act[2] == 1:
                 sys.stdout.write('sell %d \n' % ind)
+        end_time = time.perf_counter()
+        # test_write_file('这一帧使用时间为：{}ms'.format((end_time - start_time) * 1000))
         finish()
