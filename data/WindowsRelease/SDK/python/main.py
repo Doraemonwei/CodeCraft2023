@@ -38,7 +38,6 @@ def read_status():
                      float(t[7]), [float(t[8]), float(t[9])]])
         s_input = input()
         row += 1
-    # test_write_file(m_benches)
     return m_benches, m_robots
 
 
@@ -54,9 +53,8 @@ def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
     n_line_speed = 6
     n_angle_speed = 0
 
-    if distance <= 3.5 and abs(robot_angle - r2b_a) >= 1.5:
-        # test_write_file('in')
-        n_line_speed = 1
+    if (distance <= 5 or (r_x <= 1 or r_x >= 49 or r_y <= 1 or r_y >= 49)) and abs(robot_angle - r2b_a) >= 1.5:
+        n_line_speed = 0
 
     or_angle_value = abs(robot_angle - r2b_a) * 50
 
@@ -88,31 +86,33 @@ def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
     cur_v_y = n_robots[robot_id][5][1]
     cur_v = math.sqrt(cur_v_x ** 2 + cur_v_y ** 2)
 
-    # test_dis = (cur_v / 3.14159) * (1 - math.sin(abs(robot_angle)-math.pi/2)) + 0.53
-    # 角度在第四象限
+    # 只针对第一幅图生效，在本地91W，在云端只有87W
+
+    # 对于地图2的特判
+    if which_map[map_mark] == 2:
+        if (distance <= 5 or (r_x <= 1 or r_x >= 48 or r_y <= 1 or r_y >= 48)) and abs(robot_angle - r2b_a) >= 1.5:
+            n_line_speed = 0
+
     if which_map[map_mark] == 1:
         test_dis = 0.7
+        # 角度在第四象限
         if 0 > robot_angle > -1 * math.pi / 2:
             dis_ = test_dis
             # 撞下面
             if robot_loc[1] <= dis_:
                 n_angle_speed = 3.14159
-
             # 撞右边
             if robot_loc[0] >= 50 - dis_:
                 n_angle_speed = -1 * 3.14159
-
         # 第三象限
         if -1 * math.pi / 2 >= robot_angle >= -1 * math.pi:
             dis_ = test_dis
             # 撞下面
             if robot_loc[1] <= dis_:
                 n_angle_speed = -1 * 3.14159
-
             # 撞左边
             if robot_loc[0] <= dis_:
                 n_angle_speed = 3.14159
-
         # 第二象限
         if math.pi / 2 <= robot_angle <= math.pi:
             dis_ = test_dis
@@ -175,7 +175,7 @@ def init_frame():
                 # 对于工作台123，工作台类型就是产品的类型
                 done_bench[bench[1]].append([bench[0], bench[2]])  # 记录工作台id和坐标
             continue
-        # test_write_file(bench)
+
         lack_m, had_len = lack_which_material(bench[1], bench[4])  # 我自己设置的bench的存储方式比官方的在第一位多一个id
         for m in lack_m:
             type_lack[m] += 1
@@ -189,7 +189,6 @@ def init_frame():
 
     each_lack_num = [0] * 8  # 1-7，  7种材料分别实际还缺多少
 
-    # test_write_file('each_lack: {}'.format(each_lack))
     # 初始化就是不管当前正在运输的材料的数量，只看缺的
     for lack_type, lack_num in each_lack.items():
         each_lack_num[lack_type] = len(lack_num)
@@ -206,8 +205,6 @@ def init_frame():
         if will_carry != -1:
             each_lack_num[n_benches[will_carry][1]] -= 1
 
-    # if frame_id % 10 == 0:
-    #     test_write_file(each_lack_num)
     return type_lack, robot_carry, each_lack, done_bench, each_lack_num
 
 
@@ -259,7 +256,6 @@ def task_process_1():
                     if bench_id not in each_not_carry_robot_toward_bench:
                         each_not_carry_robot_toward_bench[0] = bench_id
                         break
-                # test_write_file("场上有缺，缺{},0号机器人准备去取".format(n_benches[each_not_carry_robot_toward_bench[0]]))
                 n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[0]][1]] -= 1  # 0号机器人要去这个工作台生产的材料需求-1
 
     # 如果0号机器人身上背着一个东西
@@ -336,7 +332,6 @@ def task_process_1():
                     if bench_id not in each_not_carry_robot_toward_bench:
                         each_not_carry_robot_toward_bench[1] = bench_id
                         break
-                # test_write_file("场上有缺，缺{},1号机器人准备去取".format(n_benches[each_not_carry_robot_toward_bench[1]]))
                 n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[1]][1]] -= 1  # 1号机器人要去这个工作台生产的材料需求-1
 
     # 如果机器人1身上带着物品
@@ -410,7 +405,6 @@ def task_process_1():
                     if bench_id not in each_not_carry_robot_toward_bench:
                         each_not_carry_robot_toward_bench[2] = bench_id
                         break
-                # test_write_file("场上有缺，缺{},2号机器人准备去取".format(n_benches[each_not_carry_robot_toward_bench[2]]))
                 n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[2]][1]] -= 1  # 2号机器人要去这个工作台生产的材料需求-1
     # 如果2号机器人携带了物品
     else:
@@ -486,7 +480,6 @@ def task_process_1():
                     if bench_id != each_not_carry_robot_toward_bench:
                         each_not_carry_robot_toward_bench[3] = bench_id
                         break
-                # test_write_file("场上有缺，缺{},3号机器人准备去取".format(n_benches[each_not_carry_robot_toward_bench[3]]))
                 n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[3]][1]] -= 1  # 3号机器人要去这个工作台生产的材料需求-1
     # 如果3号机器人携带了物品
     else:
@@ -534,11 +527,8 @@ def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc):
     n_line_speed = 6
     n_angle_speed = 0
 
-    if distance <= 1:
-        n_line_speed = 2 + (distance) ** 2
-
-    if abs(robot_angle - r2b_a) > math.pi / 2:
-        n_angle_speed = 2
+    if abs(robot_angle - r2b_a) > 1.5 and distance <= 5:
+        n_line_speed = 1.5
 
     or_angle_value = abs(robot_angle - r2b_a) * 50
 
@@ -582,8 +572,6 @@ def task_process():
         else:
             # 首先把所有缺的物品对应的已经生产好了的工作台放到列表中，注意，可能这个列表位空。因为可能这个缺的物品一个都没有生产出来
             l_d_m = []  # 缺少的但是已经做好了的物品对应的工作台，这个工作台的与1号机器人的距离和这个工作台的id
-            # test_write_file('n_done_bench: {}'.format(n_done_bench))
-            # test_write_file('n_each_lack_num: {}'.format(n_each_lack_num))
             for k, v in n_done_bench.items():
                 if n_each_lack_num[k] != 0:
                     # 因为n_done_bench这个字典的值是列表类型，所以需要遍历一个个取
@@ -592,8 +580,7 @@ def task_process():
                                                    n_robots[0][7][1],
                                                    bench[1][0],
                                                    bench[1][1]), bench[0]])
-            # test_write_file('缺少的但是已经做好了的物品: ')
-            # test_write_file(l_d_m)
+
             # 如果已经有缺少的成品被生产出来了在进行下面的操作，否则就直接不改变默认的速度设定，也就是全0
             if l_d_m:
                 l_d_m.sort()  # 按照距离从小到大排序，取第一个
@@ -610,7 +597,8 @@ def task_process():
                     each_robot_act[0][0] = r_instruct_0[0]  # 线速度
                     each_robot_act[0][1] = r_instruct_0[1]  # 角速度
                     each_not_carry_robot_toward_bench[0] = n_benches[l_d_m[0][1]][0]  # 设置0号机器人要去的工作台，防止后面抢
-                    n_each_lack_num[n_benches[l_d_m[0][1]][1]] -= 1  # 0号机器人要去这个工作台生产的材料需求-1
+                # 不管你是买了还是在路上，这个需求就都已经被占了
+                n_each_lack_num[n_benches[l_d_m[0][1]][1]] -= 1  # 0号机器人要去这个工作台生产的材料需求-1
 
     # 如果0号机器人身上背着一个东西
     else:
@@ -661,17 +649,19 @@ def task_process():
                         each_not_carry_robot_toward_bench[1] = bench_id
                         break
                 # 如果距离最近的工作台已经可以交易，就保持速度为0进行购买操作
-                if each_not_carry_robot_toward_bench[1] == n_robots[1][0]:
-                    each_robot_act[1][2] = 0  # 购买
-                    n_robots[1][1] = n_benches[each_not_carry_robot_toward_bench[1]][1]  # 购买之后，1号机器人携带的就是这个了
-                # 当前不能交易，则向着目标工作台移动
-                else:
-                    # r_instruct_1是计算出来的1号机器人需要执行的命令
-                    r_instruct_1 = cal_instruct(0, n_robots[1][7],
-                                                n_robots[1][6],
-                                                n_benches[each_not_carry_robot_toward_bench[1]][2])
-                    each_robot_act[1][0] = r_instruct_1[0]  # 线速度
-                    each_robot_act[1][1] = r_instruct_1[1]  # 角速度
+                if each_not_carry_robot_toward_bench[1] != -1:
+                    if each_not_carry_robot_toward_bench[1] == n_robots[1][0]:
+                        each_robot_act[1][2] = 0  # 购买
+                        n_robots[1][1] = n_benches[each_not_carry_robot_toward_bench[1]][1]  # 购买之后，1号机器人携带的就是这个了
+
+                    # 当前不能交易，则向着目标工作台移动
+                    else:
+                        # r_instruct_1是计算出来的1号机器人需要执行的命令
+                        r_instruct_1 = cal_instruct(0, n_robots[1][7],
+                                                    n_robots[1][6],
+                                                    n_benches[each_not_carry_robot_toward_bench[1]][2])
+                        each_robot_act[1][0] = r_instruct_1[0]  # 线速度
+                        each_robot_act[1][1] = r_instruct_1[1]  # 角速度
                     n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[1]][1]] -= 1  # 1号机器人要去这个工作台生产的材料需求-1
 
     # 如果机器人1身上带着物品
@@ -733,17 +723,18 @@ def task_process():
                         each_not_carry_robot_toward_bench[2] = bench_id
                         break
                 # 如果距离最近的工作台已经可以交易，就保持速度为0进行购买操作
-                if each_not_carry_robot_toward_bench[2] == n_robots[2][0]:
-                    each_robot_act[2][2] = 0  # 购买
-                    n_robots[2][1] = n_benches[each_not_carry_robot_toward_bench[2]][1]  # 购买之后就需要改变2号机器人携带的物品的状态了
-                # 当前不能交易，则向着目标工作台移动
-                else:
-                    # r_instruct_2是计算出来的2号机器人需要执行的命令
-                    r_instruct_2 = cal_instruct(0, n_robots[2][7],
-                                                n_robots[2][6],
-                                                n_benches[each_not_carry_robot_toward_bench[2]][2])
-                    each_robot_act[2][0] = r_instruct_2[0]  # 线速度
-                    each_robot_act[2][1] = r_instruct_2[1]  # 角速度
+                if each_not_carry_robot_toward_bench[2] != -1:
+                    if each_not_carry_robot_toward_bench[2] == n_robots[2][0]:
+                        each_robot_act[2][2] = 0  # 购买
+                        n_robots[2][1] = n_benches[each_not_carry_robot_toward_bench[2]][1]  # 购买之后就需要改变2号机器人携带的物品的状态了
+                    # 当前不能交易，则向着目标工作台移动
+                    else:
+                        # r_instruct_2是计算出来的2号机器人需要执行的命令
+                        r_instruct_2 = cal_instruct(0, n_robots[2][7],
+                                                    n_robots[2][6],
+                                                    n_benches[each_not_carry_robot_toward_bench[2]][2])
+                        each_robot_act[2][0] = r_instruct_2[0]  # 线速度
+                        each_robot_act[2][1] = r_instruct_2[1]  # 角速度
                     n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[2]][1]] -= 1  # 2号机器人要去这个工作台生产的材料需求-1
     # 如果2号机器人携带了物品
     else:
@@ -818,17 +809,19 @@ def task_process():
                         each_not_carry_robot_toward_bench[3] = bench_id
                         break
                 # 如果距离最近的工作台已经可以交易，就保持速度为0进行购买操作
-                if each_not_carry_robot_toward_bench[3] == n_robots[3][0]:
-                    each_robot_act[3][2] = 0  # 购买
-                    n_robots[3][1] = n_benches[each_not_carry_robot_toward_bench[3]][1]  # 购买之后就需要改变2号机器人携带的物品的状态了
-                # 当前不能交易，则向着目标工作台移动
-                else:
-                    # r_instruct_3是计算出来的3号机器人需要执行的命令
-                    r_instruct_3 = cal_instruct(0, n_robots[3][7],
-                                                n_robots[3][6],
-                                                n_benches[each_not_carry_robot_toward_bench[3]][2])
-                    each_robot_act[3][0] = r_instruct_3[0]  # 线速度
-                    each_robot_act[3][1] = r_instruct_3[1]  # 角速度
+                # ！！！只有当我的each_not_carry_robot_toward_bench[3]!=-1时才会有目标一说
+                if each_not_carry_robot_toward_bench[3] != -1:
+                    if each_not_carry_robot_toward_bench[3] == n_robots[3][0]:
+                        each_robot_act[3][2] = 0  # 购买
+                        n_robots[3][1] = n_benches[each_not_carry_robot_toward_bench[3]][1]  # 购买之后就需要改变2号机器人携带的物品的状态了
+                    # 当前不能交易，则向着目标工作台移动
+                    else:
+                        # r_instruct_3是计算出来的3号机器人需要执行的命令
+                        r_instruct_3 = cal_instruct(0, n_robots[3][7],
+                                                    n_robots[3][6],
+                                                    n_benches[each_not_carry_robot_toward_bench[3]][2])
+                        each_robot_act[3][0] = r_instruct_3[0]  # 线速度
+                        each_robot_act[3][1] = r_instruct_3[1]  # 角速度
                     n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[3]][1]] -= 1  # 3号机器人要去这个工作台生产的材料需求-1
     # 如果3号机器人携带了物品
     else:
@@ -841,15 +834,20 @@ def task_process():
                                                        bench[1][1]) / (bench[2] + 1),  # 注意这里要+1，因为可能为0
                                           bench[0]])
         need_3_type_m_benches.sort()  # 按照加权距离进行排序
+        has_target = False  # 调试时使用，用来判断带着物品的机器人3到底有没有找到目标
         # 判断身上背的东西与0号,1号，2号机器人身上背的东西是否相同，一共有8种情况
         #  1,与012都不同, 找第一个工作台
         if n_robots[3][1] != n_robots[0][1] and n_robots[3][1] != n_robots[1][1] and n_robots[3][1] != n_robots[2][1]:
+            # test_write_file('3号机器人身上的物品{}一定有工作台需要，所有需要3号工作台身上东西的工作台：{}'.format(n_robots[3][1], need_3_type_m_benches))
             each_carry_robot_toward_bench[3] = need_3_type_m_benches[0][1]
+            has_target = True
         #  2与0同，12不同，找到第一个与0不同的
+
         elif n_robots[3][1] == n_robots[0][1] and n_robots[3][1] != n_robots[1][1] and n_robots[3][1] != n_robots[2][1]:
             for i in need_3_type_m_benches:
                 if i[1] != each_carry_robot_toward_bench[0]:
                     each_carry_robot_toward_bench[3] = i[1]
+                    has_target = True
                     break
         #  3,与1同，02不同，找到第一个与1不同的
         elif n_robots[3][1] != n_robots[0][1] and n_robots[3][1] == n_robots[1][1] and n_robots[3][1] != \
@@ -857,6 +855,7 @@ def task_process():
             for i in need_3_type_m_benches:
                 if i[1] != each_carry_robot_toward_bench[1]:
                     each_carry_robot_toward_bench[3] = i[1]
+                    has_target = True
                     break
         #  4,与2同，01不同，找到第一个与2不同的
         elif n_robots[3][1] != n_robots[0][1] and n_robots[3][1] != n_robots[1][1] and n_robots[3][1] == \
@@ -864,6 +863,7 @@ def task_process():
             for i in need_3_type_m_benches:
                 if i[1] != each_carry_robot_toward_bench[2]:
                     each_carry_robot_toward_bench[3] = i[1]
+                    has_target = True
                     break
         #  5,与01同，2不同，找到第一个与01不同的
         elif n_robots[3][1] == n_robots[0][1] and n_robots[3][1] == n_robots[1][1] and n_robots[3][1] != \
@@ -871,6 +871,7 @@ def task_process():
             for i in need_3_type_m_benches:
                 if i[1] != each_carry_robot_toward_bench[0] and i[1] != each_carry_robot_toward_bench[1]:
                     each_carry_robot_toward_bench[3] = i[1]
+                    has_target = True
                     break
         #  6,与02同，1不同，找到第一个与02不同的
         elif n_robots[3][1] == n_robots[0][1] and n_robots[3][1] != n_robots[1][1] and n_robots[3][1] == \
@@ -878,6 +879,7 @@ def task_process():
             for i in need_3_type_m_benches:
                 if i[1] != each_carry_robot_toward_bench[0] and i[1] != each_carry_robot_toward_bench[2]:
                     each_carry_robot_toward_bench[3] = i[1]
+                    has_target = True
                     break
         #  7,与12同，0不同，找到第一个与12不同的
         elif n_robots[3][1] != n_robots[0][1] and n_robots[3][1] == n_robots[1][1] and n_robots[3][1] == \
@@ -885,6 +887,7 @@ def task_process():
             for i in need_3_type_m_benches:
                 if i[1] != each_carry_robot_toward_bench[1] and i[1] != each_carry_robot_toward_bench[2]:
                     each_carry_robot_toward_bench[3] = i[1]
+                    has_target = True
                     break
         #  8,都相同，找与012都不相同的第一个
         else:
@@ -892,19 +895,21 @@ def task_process():
                 if i[1] != each_carry_robot_toward_bench[0] and i[1] != each_carry_robot_toward_bench[1] and i[1] != \
                         each_carry_robot_toward_bench[2]:
                     each_carry_robot_toward_bench[3] = i[1]
+                    has_target = True
                     break
+
+        # 正常情况下来说，经过上面的8个if判断之后，3号机器人必定有一个目标要去，所以此时each_carry_robot_toward_bench[3]必定！=-1才对
         # 能卖就卖
         if n_robots[3][0] == each_carry_robot_toward_bench[3]:
             each_robot_act[3][2] = 1
             n_robots[3][1] = 0  # 卖掉之后就没有携带物品了
+
         # 不能卖，向它靠近
         else:
-
             target_bench_id = each_carry_robot_toward_bench[3]
             r_instruct_3 = cal_instruct(1, n_robots[3][7], n_robots[3][6], n_benches[target_bench_id][2])
             each_robot_act[3][0] = r_instruct_3[0]  # 线速度
             each_robot_act[3][1] = r_instruct_3[1]  # 角速度
-            # test_write_file(str(frame_id) + '老四判定' + str(r_instruct_3))
     return each_robot_act
 
 
@@ -948,45 +953,39 @@ which_map = {'124235316AA25A431A78712543612423531': 1, '123132132AAAA56465478': 
 if __name__ == '__main__':
     # 读取机器人以及工作台的初始位置信息
     map_mark = read_map_util_ok()
-    # test_write_file(map_mark)
     # 每一次与判题器交互后都要输出ok并flush
     finish()
 
     while True:
         # 第一个必须由外面的循环读取，否则不能判断是否已经结束
-        start_time = time.perf_counter()
+        # start_time = time.perf_counter()
         line = sys.stdin.readline()
         if not line:
             break
         parts = line.split(' ')
         frame_id = int(parts[0])
-        # test_write_file(frame_id)
+
         # 读取信息并得到当前工作台和机器人的状态信息
         n_benches, n_robots = read_status()
         # 处理好每一帧需要的4个数据
         n_type_lack, n_robot_carry, n_each_lack, n_done_bench, n_each_lack_num = init_frame()
         # 这一帧每个机器人应该执行的操作
-        #
+        # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
         if which_map[map_mark] in [1, 2, 4]:
             n_each_robot_act = task_process_1()
         else:
             n_each_robot_act = task_process()
-        # test_write_file(n_each_robot_act)
+
         sys.stdout.write('%d\n' % frame_id)
-        # 给出帧数，现在因该显示的时间,10帧输出一个
-        # if frame_id % 10 == 0:
-        #     test_write_file(cal_time(frame_id))
+
         for ind, act in enumerate(n_each_robot_act):
             sys.stdout.write('forward %d %f\n' % (ind, act[0]))
             sys.stdout.write('rotate %d %f\n' % (ind, act[1]))
             # 如果最后只剩三秒了，就别买了
-            if act[2] == 0 and frame_id <= 8800:
+            if act[2] == 0 and frame_id <= 9000:
                 sys.stdout.write('buy %d \n' % ind)
             elif act[2] == 1:
                 sys.stdout.write('sell %d \n' % ind)
-        end_time = time.perf_counter()
+        # end_time = time.perf_counter()
         # test_write_file('这一帧使用时间为：{}ms'.format((end_time - start_time) * 1000))
-        # test_write_file(
-        #     "所有没有背的目标bench:{}\n 背着的目标bench:{}".format(each_not_carry_robot_toward_bench, each_carry_robot_toward_bench))
-        # test_write_file(n_each_lack_num)
         finish()

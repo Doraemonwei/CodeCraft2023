@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # @Time : 2023/3/15 0:33
 # @Author : Lanpangzi
-# @File : with_out_boss.py
+# @File : with_boss.py
 # !/bin/bash
 import math
 import sys

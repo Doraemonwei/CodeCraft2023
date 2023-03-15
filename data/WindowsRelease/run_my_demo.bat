@@ -1,1 +1,1 @@
-robot_gui.exe "python SDK\python\CodeCraft-2023\main.py" -m maps\1.txt
+robot_gui.exe "python SDK\python\main.py" -m  maps\3.txt -s 12356
