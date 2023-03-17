@@ -159,6 +159,8 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
 
 
 def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
+    # if which_map[map_mark]==1:
+    #     return cal_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id)
     r_x, r_y = robot_loc[0], robot_loc[1]
     b_x, b_y = bench_loc[0], bench_loc[1]
 
@@ -194,38 +196,37 @@ def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
             n_angle_speed = -or_angle_value
 
     # 防止撞墙
-    if which_map[map_mark] in [1, 2, 3, 4, 6]:
+    if which_map[map_mark] in [1, 2, 3, 4]:
         # 地图边界约束
         if (distance <= 5 or (r_x <= 1 or r_x >= 48 or r_y <= 1 or r_y >= 48)) and abs(robot_angle - r2b_a) >= 1.5:
             n_line_speed = 0
 
     # 防止转圈
-    if which_map[map_mark] in [1, 2, 3, 4, 6]:
+    if which_map[map_mark] in [1, 2, 3, 4]:
         # 距离目标约束
         if distance <= 1 and abs(robot_angle - r2b_a) >= 1.5:
             n_line_speed = 0
 
     # 防止距离目标点很近但是因为调整角度而冲过了头
-    if which_map[map_mark] in [1, 2, 3, 4, 6]:
+    if which_map[map_mark] in [1, 2, 3, 4]:
         if distance <= 3 and abs(robot_angle - r2b_a) >= 0.3:
             n_line_speed = 0
 
-    # 机器人之间相撞特判，如果两个机器人相聚很近而且二者的速度在两者连线的方向方向相向且较大，当前机器人就顺时针拉满角速度,但是这种方式似乎不太适合很散的图，比如1
-    # 当然，感觉这是我程序的问题
-    #  首先只考虑距离此机器人最近的机器人
-    nearest_robot_id = -1
-    nearest_distance = float('inf')
-    for r_i in range(4):
-        if r_i == robot_id:
-            continue
-        else:
-            t = cal_distance(robot_loc[0], robot_loc[1], n_robots[r_i][7][0], n_robots[r_i][7][1])
-            if t < nearest_distance:
-                nearest_robot_id = r_i
-                nearest_distance = t
-    # 如果他们相向而行
-    if which_map[map_mark] in [1, 2, 3, 4, 6]:
-        if nearest_distance <= 4:
+    # 防止机器人之间的碰撞
+    if which_map[map_mark] in [1, 2, 3, 4]:
+        nearest_robot_id = -1
+        nearest_distance = float('inf')
+        for r_i in range(4):
+            if r_i == robot_id:
+                continue
+            else:
+                t = cal_distance(robot_loc[0], robot_loc[1], n_robots[r_i][7][0], n_robots[r_i][7][1])
+                if t < nearest_distance:
+                    nearest_robot_id = r_i
+                    nearest_distance = t
+        # 判定距离设置
+        warning_distance = 4 if is_carry else 3
+        if nearest_distance <= warning_distance:
             # 这个机器人指向最近那个机器人的向量
             vector_1 = [n_robots[nearest_robot_id][7][0] - robot_loc[0],
                         n_robots[nearest_robot_id][7][1] - robot_loc[1]]
@@ -270,7 +271,7 @@ def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
     return [n_line_speed, n_angle_speed]
 
 
-# 没有老大
+# 使用循环的分配方案
 def task_process_1():
     # 返回的是每个机器人应该进行的操作，包括线速度，角速度，买卖
     each_robot_act = [[0, 0, -1] for _ in range(4)]  # 0，0表示线速度和角速度，0是买1是卖，-1是不进行买卖操作
@@ -316,29 +317,23 @@ def task_process_1():
                                                        bench[1][1]) / weight, bench[0]])
                 # 如果已经有缺少的成品被生产出来了再进行下面的操作，否则就直接不改变默认的速度设定，也就是全0
                 if l_d_m:
-                    l_d_m.sort()  # 按照距离从小到大排序，取第一个
-                    for dis, bench_id in l_d_m:
-                        if bench_id not in each_not_carry_robot_toward_bench:
-                            each_not_carry_robot_toward_bench[robot_id] = bench_id
-                            break
-                    # 如果有缺的被身生产好了，这个机器人要去这个工作台生产的材料需求-1
+                    l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123
+                    if which_map[map_mark] in not_constraint_123_map:
+                        for dis, bench_id in l_d_m:
+                            if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in [1, 2, 3]:
+                                each_not_carry_robot_toward_bench[robot_id] = bench_id
+                                break
+                    else:
+                        for dis, bench_id in l_d_m:
+                            if bench_id not in each_not_carry_robot_toward_bench:
+                                each_not_carry_robot_toward_bench[robot_id] = bench_id
+                                break
+                    # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
                     if each_not_carry_robot_toward_bench[robot_id] != -1:
                         n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[robot_id]][1]] -= 1
         else:
             # 机器人身上有，说明一定有工作台需要
-            # if each_carry_robot_toward_bench[robot_id] != -1:
             if n_robots[robot_id][0] != -1 and n_robots[robot_id][0] == each_carry_robot_toward_bench[robot_id]:
-                # for i in range(4):
-                #     test_write_file('{} 机器人在 {}'.format(i, n_robots[i][7]))
-                # test_write_file(
-                #     '卖就卖环节，{}可以交易的bench:{}, 我的目标id {}, 我身上背着：{},这个工作台类型：{}'.format(robot_id, n_robots[robot_id][0],
-                #                                                                    each_carry_robot_toward_bench[
-                #                                                                        robot_id],
-                #                                                                    n_robots[robot_id][1],
-                #                                                                    n_benches[
-                #                                                                        each_carry_robot_toward_bench[
-                #                                                                            robot_id]][1]))
-
                 each_robot_act[robot_id][2] = 1  # 卖出
                 each_carry_robot_toward_bench[robot_id] = -1  # 卖了之后就取消该号机器人对该工作台的抢占
                 each_not_carry_robot_toward_bench[robot_id] = -1  # 卖掉之后我就是没有目标的了
@@ -394,7 +389,7 @@ def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
 
     return [n_line_speed, n_angle_speed]
 
-
+# 不使用循环的原始分配方案
 def task_process_for_map_1():
     # 返回的是每个机器人应该进行的操作，包括线速度，角速度，买卖
     each_robot_act = [[0, 0, -1] for _ in range(4)]  # 0，0表示线速度和角速度，0是买1是卖，-1是不进行买卖操作
@@ -670,6 +665,7 @@ def task_process_for_map_1():
     # 如果3号机器人携带了物品
     else:
         if each_carry_robot_toward_bench[3] != -1:
+            # 能卖就卖
             if n_robots[3][0] == each_carry_robot_toward_bench[3]:
                 each_robot_act[3][2] = 1
                 each_carry_robot_toward_bench[3] = -1
@@ -730,14 +726,13 @@ def finish():
     sys.stdout.write('OK\n')
     sys.stdout.flush()
 
-
 # 记录用的是哪一张地图，方便使用对应的分配方案和运动控制
 # 地图1： 124235316AA25A431A78712543612423531
 # 地图2：123132132AAAA56465478
 # 地图3：71233AAAA4564568112233
 # 地图4：912312544A5545A45666666455563652415546565A64A566661236
 which_map = {'124235316AA25A431A78712543612423531': 1, '123132132AAAA56465478': 2, '71233AAAA4564568112233': 3,
-             '912312544A5545A45666666455563652415546565A64A566661236': 4, '123AAAA712334568123': 6}
+             '912312544A5545A45666666455563652415546565A64A566661236': 4}
 if __name__ == '__main__':
     # 读取机器人以及工作台的初始位置信息
     map_mark = read_map_util_ok()
@@ -757,9 +752,11 @@ if __name__ == '__main__':
         # 处理好每一帧需要的4个数据
         n_type_lack, n_robot_carry, n_each_lack, n_done_bench, n_each_lack_num = init_frame()
         # 这一帧每个机器人应该执行的操作
+        #  设置直接忽略123工作台加工时间的地图
+        not_constraint_123_map = [3]  #
         # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
         use_or_task = False
-        if which_map[map_mark] in [1, 2, 3, 4, 6]:
+        if which_map[map_mark] in [2, 3, 4]:
             n_each_robot_act = task_process_1()
         else:
             n_each_robot_act = task_process_for_map_1()
@@ -774,9 +771,7 @@ if __name__ == '__main__':
                 sys.stdout.write('buy %d \n' % ind)
             elif act[2] == 1:
                 sys.stdout.write('sell %d \n' % ind)
-        # test_write_file(n_robots[0][5])
         # end_time = time.perf_counter()
         # test_write_file('这一帧使用时间为：{}ms'.format((end_time - start_time) * 1000))
-
         # test_write_file('')
         finish()
