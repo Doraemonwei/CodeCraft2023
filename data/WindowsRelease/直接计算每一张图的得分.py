@@ -28,5 +28,4 @@ if __name__ == '__main__':
     for ind, i in enumerate(each_score):
         if ind >= 1:
             sum_ += i
-
     print('总分是：{}'.format(sum_))

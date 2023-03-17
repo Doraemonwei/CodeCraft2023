@@ -77,7 +77,6 @@ def init_frame():
                 # 对于工作台123，工作台类型就是产品的类型
                 done_bench[bench[1]].append([bench[0], bench[2]])  # 记录工作台id和坐标
             continue
-
         lack_m, had_len = lack_which_material(bench[1], bench[4])  # 我自己设置的bench的存储方式比官方的在第一位多一个id
         for m in lack_m:
             type_lack[m] += 1
@@ -158,117 +157,335 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
     return assumption_target_bench
 
 
-def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
-    # if which_map[map_mark]==1:
-    #     return cal_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id)
+# 人工势场法实现避障
+#    可能方案之一暂时不完整
+def artificial_potential_field(m_loc, m_angle, obstacle_loc):
+    # 斥力
+    repulsive_force = [m_loc[0] - obstacle_loc[0], m_loc[1] - obstacle_loc[1]]
+    # 斥力与x轴正方向的夹角
+    theta = math.atan2(repulsive_force[1], repulsive_force[0])
+    # 如果两者同向而行，不转
+    if m_angle - 0.5 <= theta <= m_angle + 0.5:
+        return 0
+    # 如果斥力与小车方向刚好相反，直接顺时针转
+    if theta * m_angle < 0 and math.pi - 0.36 <= abs(theta) + abs(m_angle) <= math.pi:
+        return -3.4
+    repulsive_force_size = math.sqrt(repulsive_force[0] ** 2 + repulsive_force[1] ** 2)
+    w_size = -1 * 0.8 * repulsive_force_size + 4.4
+    if theta >= 0 and m_angle >= 0:
+        if theta > m_angle:
+            return w_size
+        else:
+            return -1 * w_size
+    elif theta >= 0 and m_angle <= 0:
+        if theta + abs(m_angle) <= math.pi:
+            return w_size
+        else:
+            return -1 * w_size
+    elif theta <= 0 and m_angle > 0:
+        if abs(theta) + m_angle <= math.pi:
+            return -1 * w_size
+        else:
+            return w_size
+    return 0
+
+
+# 简单的转向避障
+def simple_collision_avoidance(robot_id, robot_loc, nearest_robot_id, nearest_distance, is_carry,
+                               warning_distance_carry,
+                               warning_distance_empty,
+                               angle_speed):
+    # 判定距离设置
+    warning_distance = warning_distance_carry if is_carry else warning_distance_empty  # 这是原来的最优
+    # 防止机器人之间的碰撞
+    if nearest_distance <= warning_distance:
+        # 这个机器人指向最近那个机器人的向量
+        vector_1 = [n_robots[nearest_robot_id][7][0] - robot_loc[0],
+                    n_robots[nearest_robot_id][7][1] - robot_loc[1]]
+        # 距离最近的那个机器人指向这个机器人的向量
+        vector_2 = [robot_loc[0] - n_robots[nearest_robot_id][7][0],
+                    robot_loc[1] - n_robots[nearest_robot_id][7][1]]
+        # 这个机器人与 这个机器人指向最近那个机器人的向量 之间的夹角余弦
+        m_v = n_robots[robot_id][5]  # 这个机器人的速度向量
+        t_1 = math.sqrt(m_v[0] ** 2 + m_v[1] ** 2) * math.sqrt(vector_1[0] ** 2 + vector_1[1] ** 2)
+        cos_theta_1 = (m_v[0] * vector_1[0] + m_v[1] * vector_1[1]) / t_1 if t_1 != 0 else 0
+        # 距离最近的那个机器人与 距离最近的那个机器人指向这个机器人的向量 之间的夹角
+        tar_robot_v = n_robots[nearest_robot_id][5]
+        t_2 = (math.sqrt(tar_robot_v[0] ** 2 + tar_robot_v[1] ** 2) * math.sqrt(
+            vector_2[0] ** 2 + vector_2[1] ** 2))
+        cos_theta_2 = (tar_robot_v[0] * vector_2[0] + tar_robot_v[1] * vector_2[1]) / t_2 if t_2 != 0 else 0
+        # 只要有一个小于cos_theta<=0就说明不会撞，所以只考虑都大于0的情况
+        if cos_theta_1 >= 0 and cos_theta_2 >= 0:
+            # 判定角90°对于3是挺友好的，对其他的不行
+            # judge_angle = 45 if which_map[map_mark] in [2, 3, 4] else 90
+            judge_angle = 45 if which_map[map_mark] in [1, 2, 4] else 90
+            if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle:
+                # 小车上下运动和左右运动是不一样的
+                #  前后运动
+                if abs(n_robots[robot_id][5][0]) >= abs(n_robots[robot_id][5][1]):
+                    # y0>y1 and x0<x1      y0<y1 and x0>x1  逆时针
+                    if (robot_loc[1] >= n_robots[nearest_robot_id][7][1] and robot_loc[0] <=
+                        n_robots[nearest_robot_id][7][0]) or ((
+                            robot_loc[1] <= n_robots[nearest_robot_id][7][1] and robot_loc[0] >=
+                            n_robots[nearest_robot_id][7][0])):
+                        angle_speed = 3.4
+                    else:
+                        angle_speed = -3.4
+                # 上下运动
+                else:
+                    if (robot_loc[1] > n_robots[nearest_robot_id][7][1] and robot_loc[0] >
+                        n_robots[nearest_robot_id][7][0]) or ((
+                            robot_loc[1] < n_robots[nearest_robot_id][7][1] and robot_loc[0] <
+                            n_robots[nearest_robot_id][7][0])):
+                        angle_speed = 3.4
+                    else:
+                        angle_speed = -3.4
+    return angle_speed
+
+
+# 简单的角速度控制，防止蛇形走位
+#    可调参数 angle_co,默认是50
+def simple_angle_speed_control(is_carry, robot_loc, robot_angle, bench_loc, robot_id, angle_speed, angle_co=50):
     r_x, r_y = robot_loc[0], robot_loc[1]
     b_x, b_y = bench_loc[0], bench_loc[1]
-
     r2b = [b_x - r_x, b_y - r_y]  # 机器人指向工作台的向量，目标就是把机器人的速度矢量掰过来
     r2b_a = math.atan2(r2b[1], r2b[0])  # 当前机器人与目标工作台向量与x轴正方向的夹角
+    or_angle_value = abs(robot_angle - r2b_a) * angle_co
+    if r2b_a >= 0 and robot_angle >= 0:
+        if robot_angle >= r2b_a:
+            angle_speed = -1 * or_angle_value
+        elif robot_angle < r2b_a:
+            angle_speed = or_angle_value
+    elif r2b_a <= 0 and robot_angle <= 0:
+        if robot_angle >= r2b_a:
+            angle_speed = -or_angle_value
+        elif robot_angle < r2b_a:
+            angle_speed = or_angle_value
+    elif r2b_a <= 0 and robot_angle >= 0:
+        if abs(r2b_a) + abs(robot_angle) <= math.pi:
+            angle_speed = -or_angle_value
+        else:
+            angle_speed = or_angle_value
+    else:
+        if abs(r2b_a) + abs(robot_angle) <= math.pi:
+            angle_speed = or_angle_value
+        else:
+            angle_speed = -or_angle_value
+    return angle_speed
 
+
+# 地图边界约束，防止撞墙
+def map_boundary_constraint(is_carry, robot_loc, robot_angle, bench_loc, robot_id, line_speed, to_x_l=1, to_x_h=48,
+                            to_y_l=1, to_y_h=48, ang_diff=1.5):
+    r_x, r_y = robot_loc[0], robot_loc[1]
+    b_x, b_y = bench_loc[0], bench_loc[1]
+    r2b = [b_x - r_x, b_y - r_y]  # 机器人指向工作台的向量，目标就是把机器人的速度矢量掰过来
+    r2b_a = math.atan2(r2b[1], r2b[0])  # 当前机器人与目标工作台向量与x轴正方向的夹角
     distance = math.sqrt((r_x - b_x) ** 2 + (r_y - b_y) ** 2)  # 当前机器人与工作台的距离
+    if (distance <= 5 or (r_x <= to_x_l or r_x >= to_x_h or r_y <= to_y_l or r_y >= to_y_h)) and abs(
+            robot_angle - r2b_a) >= ang_diff:
+        line_speed = 0
+    return line_speed
 
+
+# 距离目标距离的约束
+def target_distance_constraint(is_carry, robot_loc, robot_angle, bench_loc, robot_id, line_speed):
+    r_x, r_y = robot_loc[0], robot_loc[1]
+    b_x, b_y = bench_loc[0], bench_loc[1]
+    r2b = [b_x - r_x, b_y - r_y]  # 机器人指向工作台的向量，目标就是把机器人的速度矢量掰过来
+    r2b_a = math.atan2(r2b[1], r2b[0])  # 当前机器人与目标工作台向量与x轴正方向的夹角
+    distance = math.sqrt((r_x - b_x) ** 2 + (r_y - b_y) ** 2)  # 当前机器人与工作台的距离
+    if distance <= 5 and abs(robot_angle - r2b_a) >= 1.5:
+        line_speed = 0
+    if distance <= 1 and abs(robot_angle - r2b_a) >= 1.5:
+        line_speed = 0
+    if distance <= 3 and abs(robot_angle - r2b_a) >= 0.3:
+        line_speed = 0
+    return line_speed
+
+
+# 专门计算地图一的运动控制
+def map_1_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
+    # 默认线速度和角速度
     n_line_speed = 6
     n_angle_speed = 0
 
-    or_angle_value = abs(robot_angle - r2b_a) * 50
+    # 简单角速度约束，防止蛇形走位
+    n_angle_speed = simple_angle_speed_control(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_angle_speed)
 
-    if r2b_a >= 0 and robot_angle >= 0:
-        if robot_angle > r2b_a:
-            n_angle_speed = -1 * or_angle_value
-        elif robot_angle < r2b_a:
-            n_angle_speed = or_angle_value
-    elif r2b_a < 0 and robot_angle < 0:
-        if robot_angle > r2b_a:
-            n_angle_speed = -or_angle_value
-        elif robot_angle < r2b_a:
-            n_angle_speed = or_angle_value
-    elif r2b_a < 0 and robot_angle > 0:
-        if abs(r2b_a) + abs(robot_angle) < math.pi:
-            n_angle_speed = -or_angle_value
-        else:
-            n_angle_speed = or_angle_value
-    else:
-        if abs(r2b_a) + abs(robot_angle) < math.pi:
-            n_angle_speed = or_angle_value
-        else:
-            n_angle_speed = -or_angle_value
+    # 地图边界约束，防止撞墙
+    n_line_speed = map_boundary_constraint(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_line_speed)
 
-    # 防止撞墙
-    if which_map[map_mark] in [1, 2, 3, 4]:
-        # 地图边界约束
-        if (distance <= 5 or (r_x <= 1 or r_x >= 48 or r_y <= 1 or r_y >= 48)) and abs(robot_angle - r2b_a) >= 1.5:
-            n_line_speed = 0
+    # 距离目标距离对线速度的约束，防止打转
+    n_line_speed = target_distance_constraint(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_line_speed)
 
-    # 防止转圈
-    if which_map[map_mark] in [1, 2, 3, 4]:
-        # 距离目标约束
-        if distance <= 1 and abs(robot_angle - r2b_a) >= 1.5:
-            n_line_speed = 0
+    # 计算距离我最近的小球的id以及之间的距离
+    nearest_robot_id = -1
+    nearest_distance = float('inf')
+    for r_i in range(4):
+        if r_i != robot_id:
+            t = cal_distance(robot_loc[0], robot_loc[1], n_robots[r_i][7][0], n_robots[r_i][7][1])
+            if t < nearest_distance:
+                nearest_robot_id = r_i
+                nearest_distance = t
 
-    # 防止距离目标点很近但是因为调整角度而冲过了头
-    if which_map[map_mark] in [1, 2, 3, 4]:
-        if distance <= 3 and abs(robot_angle - r2b_a) >= 0.3:
-            n_line_speed = 0
+    # 使用简单的避障方式避障
+    use_simple_collision_avoidance = True
+    if use_simple_collision_avoidance:
+        warning_distance_carry = 4
+        warning_distance_empty = 3
+        n_angle_speed = simple_collision_avoidance(robot_id, robot_loc, nearest_robot_id, nearest_distance, is_carry,
+                                                   warning_distance_carry, warning_distance_empty, n_angle_speed)
 
-    # 防止机器人之间的碰撞
-    if which_map[map_mark] in [1, 2, 3, 4]:
-        nearest_robot_id = -1
-        nearest_distance = float('inf')
-        for r_i in range(4):
-            if r_i == robot_id:
-                continue
-            else:
-                t = cal_distance(robot_loc[0], robot_loc[1], n_robots[r_i][7][0], n_robots[r_i][7][1])
-                if t < nearest_distance:
-                    nearest_robot_id = r_i
-                    nearest_distance = t
-        # 判定距离设置
-        warning_distance = 4 if is_carry else 3
-        if nearest_distance <= warning_distance:
-            # 这个机器人指向最近那个机器人的向量
-            vector_1 = [n_robots[nearest_robot_id][7][0] - robot_loc[0],
-                        n_robots[nearest_robot_id][7][1] - robot_loc[1]]
-            # 距离最近的那个机器人指向这个机器人的向量
-            vector_2 = [robot_loc[0] - n_robots[nearest_robot_id][7][0],
-                        robot_loc[1] - n_robots[nearest_robot_id][7][1]]
-            # 这个机器人与 这个机器人指向最近那个机器人的向量 之间的夹角余弦
-            m_v = n_robots[robot_id][5]  # 这个机器人的速度向量
-            t_1 = math.sqrt(m_v[0] ** 2 + m_v[1] ** 2) * math.sqrt(vector_1[0] ** 2 + vector_1[1] ** 2)
-            cos_theta_1 = (m_v[0] * vector_1[0] + m_v[1] * vector_1[1]) / t_1 if t_1 != 0 else 0
-            # 距离最近的那个机器人与 距离最近的那个机器人指向这个机器人的向量 之间的夹角
-            tar_robot_v = n_robots[nearest_robot_id][5]
-            t_2 = (math.sqrt(tar_robot_v[0] ** 2 + tar_robot_v[1] ** 2) * math.sqrt(
-                vector_2[0] ** 2 + vector_2[1] ** 2))
-            cos_theta_2 = (tar_robot_v[0] * vector_2[0] + tar_robot_v[1] * vector_2[1]) / t_2 if t_2 != 0 else 0
-            # 只要有一个小于cos_theta<=0就说明不会撞，所以只考虑都大于0的情况
-            if cos_theta_1 >= 0 and cos_theta_2 >= 0:
-                # 判定角90°对于3是挺友好的，对其他的不行
-                # judge_angle = 45 if which_map[map_mark] in [2, 3, 4] else 90
-                judge_angle = 45 if which_map[map_mark] in [1, 2, 4] else 90
-                if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle:
-                    # 小车上下运动和左右运动是不一样的
-                    #  前后运动
-                    if abs(n_robots[robot_id][5][0]) >= abs(n_robots[robot_id][5][1]):
-                        # y0>y1 and x0<x1      y0<y1 and x0>x1  逆时针
-                        if (robot_loc[1] >= n_robots[nearest_robot_id][7][1] and robot_loc[0] <=
-                            n_robots[nearest_robot_id][7][0]) or ((
-                                robot_loc[1] <= n_robots[nearest_robot_id][7][1] and robot_loc[0] >=
-                                n_robots[nearest_robot_id][7][0])):
-                            n_angle_speed = 3.4
-                        else:
-                            n_angle_speed = -3.4
-                    # 上下运动
-                    else:
-                        if (robot_loc[1] > n_robots[nearest_robot_id][7][1] and robot_loc[0] >
-                            n_robots[nearest_robot_id][7][0]) or ((
-                                robot_loc[1] < n_robots[nearest_robot_id][7][1] and robot_loc[0] <
-                                n_robots[nearest_robot_id][7][0])):
-                            n_angle_speed = 3.4
-                        else:
-                            n_angle_speed = -3.4
+    # 使用人工势场法避障
+    use_artificial_potential_field = False
+    if use_artificial_potential_field:
+        # 使用人工势场计算机器人相互碰撞的角速度
+        #  注意设置检测距离
+        if nearest_distance <= 4:
+            n_angle_speed = artificial_potential_field(robot_loc, robot_angle, n_robots[nearest_robot_id][7])
+
     return [n_line_speed, n_angle_speed]
+
+
+def map_2_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
+    # 默认线速度和角速度
+    n_line_speed = 6
+    n_angle_speed = 0
+
+    # 简单角速度约束，防止蛇形走位
+    n_angle_speed = simple_angle_speed_control(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_angle_speed)
+
+    # 地图边界约束，防止撞墙
+    n_line_speed = map_boundary_constraint(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_line_speed)
+
+    # 距离目标距离对线速度的约束，防止打转
+    n_line_speed = target_distance_constraint(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_line_speed)
+
+    # 计算距离我最近的小球的id以及之间的距离
+    nearest_robot_id = -1
+    nearest_distance = float('inf')
+    for r_i in range(4):
+        if r_i != robot_id:
+            t = cal_distance(robot_loc[0], robot_loc[1], n_robots[r_i][7][0], n_robots[r_i][7][1])
+            if t < nearest_distance:
+                nearest_robot_id = r_i
+                nearest_distance = t
+
+    # 使用简单的避障方式避障
+    use_simple_collision_avoidance = True
+    if use_simple_collision_avoidance:
+        warning_distance_carry = 4
+        warning_distance_empty = 3
+        n_angle_speed = simple_collision_avoidance(robot_id, robot_loc, nearest_robot_id, nearest_distance, is_carry,
+                                                   warning_distance_carry, warning_distance_empty, n_angle_speed)
+
+    # 使用人工势场法避障
+    use_artificial_potential_field = False
+    if use_artificial_potential_field:
+        # 使用人工势场计算机器人相互碰撞的角速度
+        #  注意设置检测距离
+        if nearest_distance <= 4:
+            n_angle_speed = artificial_potential_field(robot_loc, robot_angle, n_robots[nearest_robot_id][7])
+    return [n_line_speed, n_angle_speed]
+
+
+def map_3_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
+    # 默认线速度和角速度
+    n_line_speed = 6
+    n_angle_speed = 0
+
+    # 简单角速度约束，防止蛇形走位
+    n_angle_speed = simple_angle_speed_control(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_angle_speed)
+
+    # 地图边界约束，防止撞墙
+    n_line_speed = map_boundary_constraint(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_line_speed)
+
+    # 距离目标距离对线速度的约束，防止打转
+    n_line_speed = target_distance_constraint(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_line_speed)
+
+    # 计算距离我最近的小球的id以及之间的距离
+    nearest_robot_id = -1
+    nearest_distance = float('inf')
+    for r_i in range(4):
+        if r_i != robot_id:
+            t = cal_distance(robot_loc[0], robot_loc[1], n_robots[r_i][7][0], n_robots[r_i][7][1])
+            if t < nearest_distance:
+                nearest_robot_id = r_i
+                nearest_distance = t
+
+    # 使用简单的避障方式避障
+    use_simple_collision_avoidance = True
+    if use_simple_collision_avoidance:
+        warning_distance_carry = 4
+        warning_distance_empty = 3
+        n_angle_speed = simple_collision_avoidance(robot_id, robot_loc, nearest_robot_id, nearest_distance, is_carry,
+                                                   warning_distance_carry, warning_distance_empty, n_angle_speed)
+
+    # 使用人工势场法避障
+    use_artificial_potential_field = False
+    if use_artificial_potential_field:
+        # 使用人工势场计算机器人相互碰撞的角速度
+        #  注意设置检测距离
+        if nearest_distance <= 4:
+            n_angle_speed = artificial_potential_field(robot_loc, robot_angle, n_robots[nearest_robot_id][7])
+
+    return [n_line_speed, n_angle_speed]
+
+
+def map_4_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
+    # 默认线速度和角速度
+    n_line_speed = 6
+    n_angle_speed = 0
+
+    # 简单角速度约束，防止蛇形走位
+    n_angle_speed = simple_angle_speed_control(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_angle_speed)
+
+    # 地图边界约束，防止撞墙
+    n_line_speed = map_boundary_constraint(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_line_speed)
+
+    # 距离目标距离对线速度的约束，防止打转
+    n_line_speed = target_distance_constraint(is_carry, robot_loc, robot_angle, bench_loc, robot_id, n_line_speed)
+
+    # 计算距离我最近的小球的id以及之间的距离
+    nearest_robot_id = -1
+    nearest_distance = float('inf')
+    for r_i in range(4):
+        if r_i != robot_id:
+            t = cal_distance(robot_loc[0], robot_loc[1], n_robots[r_i][7][0], n_robots[r_i][7][1])
+            if t < nearest_distance:
+                nearest_robot_id = r_i
+                nearest_distance = t
+
+    # 使用简单的避障方式避障
+    use_simple_collision_avoidance = True
+    if use_simple_collision_avoidance:
+        warning_distance_carry = 4
+        warning_distance_empty = 3
+        n_angle_speed = simple_collision_avoidance(robot_id, robot_loc, nearest_robot_id, nearest_distance, is_carry,
+                                                   warning_distance_carry, warning_distance_empty, n_angle_speed)
+
+    # 使用人工势场法避障
+    use_artificial_potential_field = False
+    if use_artificial_potential_field:
+        # 使用人工势场计算机器人相互碰撞的角速度
+        #  注意设置检测距离
+        if nearest_distance <= 4:
+            n_angle_speed = artificial_potential_field(robot_loc, robot_angle, n_robots[nearest_robot_id][7])
+    return [n_line_speed, n_angle_speed]
+
+
+# 将四个地图的运动控制完全分开
+def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
+    if which_map[map_mark] == 1:
+        return map_1_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id)
+    if which_map[map_mark] == 2:
+        return map_2_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id)
+    if which_map[map_mark] == 3:
+        return map_3_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id)
+    if which_map[map_mark] == 4:
+        return map_4_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id)
+    return []
 
 
 # 使用循环的分配方案
@@ -337,6 +554,15 @@ def task_process_1():
                 each_robot_act[robot_id][2] = 1  # 卖出
                 each_carry_robot_toward_bench[robot_id] = -1  # 卖了之后就取消该号机器人对该工作台的抢占
                 each_not_carry_robot_toward_bench[robot_id] = -1  # 卖掉之后我就是没有目标的了
+                # 卖掉之后这个工作台就不缺这个材料了，极限条件下，0号刚卖1号并解除了自己对这个工作台的抢占，同一帧1号就买同种材料，极有可能指向同一个工作台！
+                wait_for_del = 100000  # 初始化再也不写-1了，老是倒着删除
+                for ind, v in enumerate(n_each_lack[n_robots[robot_id][1]]):
+                    if v[0] == n_robots[robot_id][0]:
+                        wait_for_del = ind
+                        break
+                n_each_lack[n_robots[robot_id][1]].pop(wait_for_del)
+
+
             # 如果这个机器人不能与目标工作台交易，则向他移动
             else:
                 r_instruct = cal_instruct_1(1,
@@ -388,6 +614,7 @@ def cal_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
             n_angle_speed = -or_angle_value
 
     return [n_line_speed, n_angle_speed]
+
 
 # 不使用循环的原始分配方案
 def task_process_for_map_1():
@@ -726,6 +953,7 @@ def finish():
     sys.stdout.write('OK\n')
     sys.stdout.flush()
 
+
 # 记录用的是哪一张地图，方便使用对应的分配方案和运动控制
 # 地图1： 124235316AA25A431A78712543612423531
 # 地图2：123132132AAAA56465478
@@ -756,7 +984,7 @@ if __name__ == '__main__':
         not_constraint_123_map = [3]  #
         # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
         use_or_task = False
-        if which_map[map_mark] in [2, 3, 4]:
+        if which_map[map_mark] in [1, 2, 3, 4]:
             n_each_robot_act = task_process_1()
         else:
             n_each_robot_act = task_process_for_map_1()
@@ -773,5 +1001,5 @@ if __name__ == '__main__':
                 sys.stdout.write('sell %d \n' % ind)
         # end_time = time.perf_counter()
         # test_write_file('这一帧使用时间为：{}ms'.format((end_time - start_time) * 1000))
-        # test_write_file('')
+        # test_write_file(n_each_lack)
         finish()
