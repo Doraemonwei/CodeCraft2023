@@ -263,7 +263,7 @@ def init_frame():
         if lack_num != 0 and ind != 0:
             each_lack_num[ind] -= lack_num
     for ind, will_carry in enumerate(each_not_carry_robot_toward_bench):
-        if will_carry != -1:
+        if will_carry != -1 and n_benches[will_carry][1]!=7:
             each_lack_num[n_benches[will_carry][1]] -= 1
     # 如果场上有9工作台，需要对each_lack_num特殊处理
     for i in n_benches:
@@ -300,7 +300,7 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
             else:
                 # n_robots[i][1] == material_type   不是 n_robots[i][1] == n_robots[robot_id][1] ,因为这里是假设的
                 if each_carry_robot_toward_bench[i] == bench[1] and n_robots[i][1] == material_type and \
-                        n_benches[bench[1]][1] not in [9]:
+                        n_benches[bench[1]][1] not in [8, 9]:
                     flag = True
                     break
         if flag:
@@ -853,19 +853,16 @@ def task_process_1():
 
                 for k, v in n_done_bench.items():
                     if n_each_lack_num[k] > 0:
-                        # 因为n_done_bench这个字典的值是列表类型，所以需要遍历一个个取
                         for bench in v:
-                            # weight
                             weight = 1 if n_benches[bench[0]][1] != 7 else 3
                             l_d_m.append([cal_distance(n_robots[robot_id][7][0],
                                                        n_robots[robot_id][7][1],
                                                        bench[1][0],
                                                        bench[1][1]) / weight, bench[0]])
-                # 如果已经有缺少的成品被生产出来了再进行下面的操作，否则就直接不改变默认的速度设定，也就是全0
                 if l_d_m:
                     l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123
                     for dis, bench_id in l_d_m:
-                        if bench_id not in each_not_carry_robot_toward_bench:
+                        if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in []:
                             each_not_carry_robot_toward_bench[robot_id] = bench_id
                             break
                     # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
@@ -1649,7 +1646,9 @@ def map_4_main():
         # 这一帧每个机器人应该执行的操作
         #  设置直接忽略123工作台加工时间的地图
         # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
-        n_each_robot_act = task_process_2()
+
+        n_each_robot_act = task_process_1()
+
         sys.stdout.write('%d\n' % frame_id)
         for ind, act in enumerate(n_each_robot_act):
             sys.stdout.write('forward %d %f\n' % (ind, act[0]))

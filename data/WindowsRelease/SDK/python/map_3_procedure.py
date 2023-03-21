@@ -263,7 +263,7 @@ def init_frame():
         if lack_num != 0 and ind != 0:
             each_lack_num[ind] -= lack_num
     for ind, will_carry in enumerate(each_not_carry_robot_toward_bench):
-        if will_carry != -1:
+        if will_carry != -1 and n_benches[will_carry][1]!=7:
             each_lack_num[n_benches[will_carry][1]] -= 1
     # 如果场上有9工作台，需要对each_lack_num特殊处理
     for i in n_benches:
@@ -300,7 +300,7 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
             else:
                 # n_robots[i][1] == material_type   不是 n_robots[i][1] == n_robots[robot_id][1] ,因为这里是假设的
                 if each_carry_robot_toward_bench[i] == bench[1] and n_robots[i][1] == material_type and \
-                        n_benches[bench[1]][1] not in [9]:
+                        n_benches[bench[1]][1] not in [8, 9]:
                     flag = True
                     break
         if flag:
@@ -434,7 +434,7 @@ def map_1_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
             if cos_theta_1 >= 0 and cos_theta_2 >= 0:
                 # 判定角90°对于3是挺友好的，对其他的不行
                 # judge_angle = 45 if which_map[map_mark] in [2, 3, 4] else 90
-                judge_angle = 35
+                judge_angle = 90
                 if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle:
                     # 小车上下运动和左右运动是不一样的
                     #  前后运动
@@ -866,7 +866,8 @@ def task_process_1():
                 if l_d_m:
                     l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123
                     for dis, bench_id in l_d_m:
-                        if bench_id not in each_not_carry_robot_toward_bench:
+                        # 在这里忽略123工作台的数量，设为无限
+                        if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in [1, 2, 3]:
                             each_not_carry_robot_toward_bench[robot_id] = bench_id
                             break
                     # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
@@ -1649,9 +1650,10 @@ def map_3_main():
         global n_type_lack, n_robot_carry, n_each_lack, n_done_bench, n_each_lack_num
         n_type_lack, n_robot_carry, n_each_lack, n_done_bench, n_each_lack_num = init_frame()
         # 这一帧每个机器人应该执行的操作
-        #  设置直接忽略123工作台加工时间的地图
         # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
-        n_each_robot_act = task_process_2()
+
+        n_each_robot_act = task_process_1()
+
         sys.stdout.write('%d\n' % frame_id)
         for ind, act in enumerate(n_each_robot_act):
             sys.stdout.write('forward %d %f\n' % (ind, act[0]))

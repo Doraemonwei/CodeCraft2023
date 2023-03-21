@@ -2,6 +2,7 @@
 import math
 import sys
 from collections import defaultdict
+
 import numpy as np
 
 
@@ -241,11 +242,11 @@ def init_frame():
             type_lack[m] += 1
             # bench[0]是这个工作台的id bench[2]是这个工作台的坐标[x,y] had_len就是这个工作台已经有材料的数量
             each_lack[m].append([bench[0], bench[2], had_len])
-        # 循环能到这里说明不是123，89又没有产品
+        # 循环能到这里说明不是123，89又没有产品, 所以只能是4567
         if bench[1] not in [8, 9]:
             if bench[5] == 1:
                 done_bench[bench[1]].append([bench[0], bench[2]])
-        # test_write_file('done_bench:{}'.format(done_bench))
+
     robot_carry = [0] * 10  # 9种材料，哪些被机器人带着的
 
     each_lack_num = [0] * 8  # 1-7，  7种材料分别实际还缺多少
@@ -262,8 +263,9 @@ def init_frame():
     for ind, lack_num in enumerate(robot_carry):
         if lack_num != 0 and ind != 0:
             each_lack_num[ind] -= lack_num
+    # 空车朝向的目标工作台这种类型缺少的材料数量-1
     for ind, will_carry in enumerate(each_not_carry_robot_toward_bench):
-        if will_carry != -1:
+        if will_carry != -1 and n_benches[will_carry][1] != 7:
             each_lack_num[n_benches[will_carry][1]] -= 1
     # 如果场上有9工作台，需要对each_lack_num特殊处理
     for i in n_benches:
@@ -300,7 +302,7 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
             else:
                 # n_robots[i][1] == material_type   不是 n_robots[i][1] == n_robots[robot_id][1] ,因为这里是假设的
                 if each_carry_robot_toward_bench[i] == bench[1] and n_robots[i][1] == material_type and \
-                        n_benches[bench[1]][1] not in [9]:
+                        n_benches[bench[1]][1] not in [8, 9]:
                     flag = True
                     break
         if flag:
@@ -308,7 +310,6 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
         else:
             asumption_target_bench = bench[1]
             break
-    # test_write_file('需要{}类材料的工作台有：{}，{}选择的工作台是：{}'.format(material_type,need_robot_id_type_m_benches, robot_id,asumption_target_bench))
     return asumption_target_bench
 
 
@@ -547,7 +548,7 @@ def map_2_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
             if cos_theta_1 >= 0 and cos_theta_2 >= 0:
                 # 判定角90°对于3是挺友好的，对其他的不行
                 # judge_angle = 45 if which_map[map_mark] in [2, 3, 4] else 90
-                judge_angle = 35
+                judge_angle = -62 * nearest_distance + 248
                 if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle:
                     # 小车上下运动和左右运动是不一样的
                     #  前后运动
@@ -811,8 +812,6 @@ def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
     return map_2_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id)
 
 
-
-
 each_not_carry_robot_toward_bench = [-1] * 4  # 所有身上没有背着东西的机器人准备去的工作台序号，-1表示没有
 each_carry_robot_toward_bench = [-1] * 4  # 所有身上带着东西的机器人准备去的工作台序号，-1表示没有
 
@@ -824,9 +823,10 @@ def task_process_1():
     for robot_id in range(4):
         # 如果机器人身上没有背东西
         if n_robots[robot_id][1] == 0:
-            if sum(n_each_lack_num) == 0:
-                each_robot_act[robot_id] = [0, 0, -1]
-            elif each_not_carry_robot_toward_bench[robot_id] != -1:
+            # 直接让它不动
+            # if sum(n_each_lack_num) == 0:
+            #     each_robot_act[robot_id] = [0, 0, -1]
+            if each_not_carry_robot_toward_bench[robot_id] != -1:
                 if each_not_carry_robot_toward_bench[robot_id] == n_robots[robot_id][0]:
                     assumption_bench = pre_carried_robot_tar_bench(robot_id, n_benches[n_robots[robot_id][0]][1])
                     pre_time = cal_distance(n_robots[robot_id][7][0], n_robots[robot_id][7][1],
@@ -851,7 +851,6 @@ def task_process_1():
             else:
                 # 首先把所有缺的物品对应的已经生产好了的工作台放到列表中，注意，可能这个列表为空。因为可能这个缺的物品一个都没有生产出来
                 l_d_m = []  # 缺少的但是已经做好了的物品对应的工作台，这个工作台的与1号机器人的距离和这个工作台的id
-
                 for k, v in n_done_bench.items():
                     if n_each_lack_num[k] > 0:
                         # 因为n_done_bench这个字典的值是列表类型，所以需要遍历一个个取
@@ -862,7 +861,9 @@ def task_process_1():
                                                        n_robots[robot_id][7][1],
                                                        bench[1][0],
                                                        bench[1][1]) / weight, bench[0]])
+
                 # 如果已经有缺少的成品被生产出来了再进行下面的操作，否则就直接不改变默认的速度设定，也就是全0
+                bench_id = -1
                 if l_d_m:
                     l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123
                     for dis, bench_id in l_d_m:
@@ -872,6 +873,8 @@ def task_process_1():
                     # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
                     if each_not_carry_robot_toward_bench[robot_id] != -1:
                         n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[robot_id]][1]] -= 1
+
+
         else:
             # 机器人身上有，说明一定有工作台需要
             if n_robots[robot_id][0] != -1 and n_robots[robot_id][0] == each_carry_robot_toward_bench[robot_id]:
@@ -895,6 +898,7 @@ def task_process_1():
                                             robot_id)
                 each_robot_act[robot_id][0] = r_instruct[0]  # 线速度
                 each_robot_act[robot_id][1] = r_instruct[1]  # 角速度
+
     return each_robot_act
 
 
@@ -1015,8 +1019,9 @@ def each_empty_robot_target_bench(each_carry_robot_toward_bench):
                 # 这个距离应该加上把这个材料送到目标工作台的距离，然后/weight
                 asumption_bench_id = pre_carried_robot_tar_bench(empty_robot[j], n_benches[al_needed_bench[i]][1])
                 true_dis = cal_distance(n_robots[empty_robot[j]][7][0], n_robots[empty_robot[j]][7][1],
-                                                                     n_benches[al_needed_bench[i]][2][0],
-                                                                     n_benches[al_needed_bench[i]][2][1]) + each_bench_distance[al_needed_bench[i]][asumption_bench_id]
+                                        n_benches[al_needed_bench[i]][2][0],
+                                        n_benches[al_needed_bench[i]][2][1]) + each_bench_distance[al_needed_bench[i]][
+                               asumption_bench_id]
                 each_robot2donebench_weight_dis[i][j] = true_dis / weight[n_benches[al_needed_bench[i]][1]]
         cost = np.array(each_robot2donebench_weight_dis)
         row_ind, col_ind = linear_sum_assignment(cost)  # row_ind是所有被选中的行的索引
@@ -1624,7 +1629,6 @@ def cal_each_bench_distance(each_bench_distance):
                                                          n_benches[j][2][1])
 
 
-
 def map_2_main():
     # each_bench_distance[i][j] 表示工作台i到工作台j的距离
     global each_bench_distance
@@ -1651,7 +1655,7 @@ def map_2_main():
         # 这一帧每个机器人应该执行的操作
         #  设置直接忽略123工作台加工时间的地图
         # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
-        n_each_robot_act = task_process_2()
+        n_each_robot_act = task_process_1()
         sys.stdout.write('%d\n' % frame_id)
         for ind, act in enumerate(n_each_robot_act):
             sys.stdout.write('forward %d %f\n' % (ind, act[0]))
@@ -1664,7 +1668,6 @@ def map_2_main():
         # end_time = time.perf_counter()
         # test_write_file('这一帧使用时间为：{}ms'.format((end_time - start_time) * 1000))
         finish()
-
 
 
 if __name__ == '__main__':

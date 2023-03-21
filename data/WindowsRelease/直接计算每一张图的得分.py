@@ -22,7 +22,7 @@ def get_each_map_score(random_seed):
 
 if __name__ == '__main__':
     # seed = 1289046
-    seed = 233
+    seed = 233328
     print('种子是:{}'.format(seed))
     each_score = get_each_map_score(seed)
     sum_ = 0
