@@ -160,8 +160,11 @@ def _step6(state):
     return _step4
 
 
-#  结束
 
+
+# 所有无视的工作台，直接将他们的原材料格拉满
+al_dont_need_bench_id = [1, 2, 4, 5, 7, 8, 9, 10, 11, 12, 21, 22, 23, 20, 26, 27, 28, 29, 36, 37, 31, 32, 33, 34, 36, 40]
+al_need_bench_id = [8, 15, 17,  25, 35]
 
 # 读取每一帧的状态
 def read_status():
@@ -178,11 +181,17 @@ def read_status():
             bench_id = 0  # 记录工作台的唯一id,其实就是在m_benched中的索引
             t = s_input.split(' ')
             # [工作台id, 工作台类型，[x,y], 剩余生产时间（帧）， 原材料状态（转成二进制使用）， 产品格状态]
-            m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+            if bench_id in al_need_bench_id:
+                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+            else:
+                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), 126, int(t[5])])
             for j in range(K - 1):
                 bench_id += 1
                 t = input().split(' ')
-                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+                if bench_id  in al_need_bench_id:
+                    m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+                else:
+                    m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), 126, int(t[5])])
         else:
             t = s_input.split(' ')
             # [可以交易的工作台id，携带物品类型，时间价值系数，碰撞价值系数, 角速度，线速度[x,y]，朝向，坐标[x,y]]
@@ -692,7 +701,8 @@ def task_process_1():
                 if l_d_m:
                     l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123
                     for dis, bench_id in l_d_m:
-                        if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in [1, 2, 3]:
+                        # if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in [1, 2, 3]:
+                        if bench_id not in each_not_carry_robot_toward_bench:
                             each_not_carry_robot_toward_bench[robot_id] = bench_id
                             break
                     # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
@@ -747,25 +757,29 @@ def al_needed_benches(each_carry_robot_toward_bench):
             for i in v:
                 # 如果没有带着物品的机器人也要去这个工作台才把它加进去，因为带着东西的工作台反正要去，顺手卖掉就好了
                 # 但是有个问题，如一直有人往7号工作台送东西，那我岂不是一直都不会拿
-                if i[0] not in each_carry_robot_toward_bench:
-                    al_needed_benches.append(i[0])
+                # if i[0] not in each_carry_robot_toward_bench:
+                al_needed_benches.append(i[0])
         # 如果缺少的数小于成品数，需要挑选好的有成品的工作台
         else:
+
             al_lack_k_benches = []
             each_lack_bench_had_material_num = []  # 每个缺材料k的工作台已经有几个成品了，索引与al_lack_k_benches一一对应
             for i in n_each_lack[k]:
                 al_lack_k_benches.append(i[0])
                 each_lack_bench_had_material_num.append(i[2])
-                # 如果这个材料是123，则再加三份，应为生产的很快
-                if k in [1, 2, 3]:
-                    for m_123 in range(3):
-                        al_lack_k_benches.append(i[0])
-                        each_lack_bench_had_material_num.append(i[2])
+
+            # 已经做好材料k的工作台id
             al_done_k_benches = []
             for i in v:
                 # 如果带着物品的机器人没有要这个工作台的才把它加进去，因为带着东西的工作台反正要去，顺手卖掉就好了，就当作这里没有成品
-                if i[0] not in each_carry_robot_toward_bench:
+                # if i[0] not in each_carry_robot_toward_bench:
+                al_done_k_benches.append(i[0])
+                # 如果这个材料是123，则再加三份，应为生产的很快
+                if k in [1, 2, 3]:
                     al_done_k_benches.append(i[0])
+                    al_done_k_benches.append(i[0])
+                    al_done_k_benches.append(i[0])
+
             rows = len(al_done_k_benches)
             cols = len(al_lack_k_benches)
             # 由于忽略了正在有配送的小车去的有成品的bench，所以需要再判定一次
@@ -782,6 +796,7 @@ def al_needed_benches(each_carry_robot_toward_bench):
                         each_lack2done_weight_dis[i][j] = each_bench_distance[al_lack_k_benches[j]][
                                                               al_done_k_benches[i]] / (
                                                                   each_lack_bench_had_material_num[j] + 1)
+
                 cost = np.array(each_lack2done_weight_dis)
                 row_ind, col_ind = linear_sum_assignment(cost)  # row_ind是所有被选中的行的索引
                 for i in row_ind:

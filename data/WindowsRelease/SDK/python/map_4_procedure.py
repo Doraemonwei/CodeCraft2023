@@ -161,8 +161,7 @@ def _step6(state):
     return _step4
 
 
-#  结束
-
+al_dont_need_bench_id = [11, 14]
 
 # 读取每一帧的状态
 def read_status():
@@ -179,11 +178,18 @@ def read_status():
             bench_id = 0  # 记录工作台的唯一id,其实就是在m_benched中的索引
             t = s_input.split(' ')
             # [工作台id, 工作台类型，[x,y], 剩余生产时间（帧）， 原材料状态（转成二进制使用）， 产品格状态]
-            m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+
+            if bench_id not in al_dont_need_bench_id:
+                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+            else:
+                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), 126, int(t[5])])
             for j in range(K - 1):
                 bench_id += 1
                 t = input().split(' ')
-                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+                if bench_id not in al_dont_need_bench_id:
+                    m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+                else:
+                    m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), 126, int(t[5])])
         else:
             t = s_input.split(' ')
             # [可以交易的工作台id，携带物品类型，时间价值系数，碰撞价值系数, 角速度，线速度[x,y]，朝向，坐标[x,y]]
@@ -276,20 +282,23 @@ def init_frame():
 
 # 传入机器人id和假设的放在它身上的货品类型，返回这种假设下它应该去的工作台id
 def pre_carried_robot_tar_bench(robot_id, assumption_carry):
+
     # 如果当前机器人没有携带物品就将假设的这个物品给他
     if n_robots[robot_id][1] == 0:
         material_type = assumption_carry
     else:
         material_type = n_robots[robot_id][1]
     need_robot_id_type_m_benches = []  # 所有需要0号机器人背上材料的工作台[[add_weight_distance, bench_id]],加权距离，工作台id
+    # 如果背的是1或2而且类型为4的工作台(id=17)1缺这个玩意，则优先送给17号工作台
     for bench in n_each_lack[material_type]:
         # weight是权重
-        weight = 2 ** bench[2]
+        weight = 2 ** bench[2] if n_benches[bench[0]][1] != 4 else 100
         need_robot_id_type_m_benches.append([cal_distance(n_robots[robot_id][7][0],
                                                           n_robots[robot_id][7][1],
                                                           bench[1][0],
                                                           bench[1][1]) / weight,
                                              bench[0]])
+
     need_robot_id_type_m_benches.sort()  # 按照加权距离进行排序
     # 我的目标点应该是哪个工作台
     asumption_target_bench = 10000
@@ -309,7 +318,10 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
         else:
             asumption_target_bench = bench[1]
             break
-    # test_write_file('需要{}类材料的工作台有：{}，{}选择的工作台是：{}'.format(material_type,need_robot_id_type_m_benches, robot_id,asumption_target_bench))
+    if asumption_target_bench == 10000:
+        test_write_file(
+            '{}\n 需要{}类材料的工作台有：{}，{}选择的工作台是：{}'.format(frame_id, material_type, need_robot_id_type_m_benches, robot_id,
+                                                       asumption_target_bench))
     return asumption_target_bench
 
 
@@ -596,24 +608,25 @@ def task_process_1():
             else:
                 # 首先把所有缺的物品对应的已经生产好了的工作台放到列表中，注意，可能这个列表为空。因为可能这个缺的物品一个都没有生产出来
                 l_d_m = []  # 缺少的但是已经做好了的物品对应的工作台，这个工作台的与1号机器人的距离和这个工作台的id
-
                 for k, v in n_done_bench.items():
                     if n_each_lack_num[k] > 0:
                         for bench in v:
-                            weight = 1 if n_benches[bench[0]][1] != 7 else 3
+                            weight = 1 if n_benches[bench[0]][1] != 7 else 100
                             l_d_m.append([cal_distance(n_robots[robot_id][7][0],
                                                        n_robots[robot_id][7][1],
                                                        bench[1][0],
                                                        bench[1][1]) / weight, bench[0]])
+
                 if l_d_m:
                     l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123
                     for dis, bench_id in l_d_m:
                         if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in []:
                             each_not_carry_robot_toward_bench[robot_id] = bench_id
                             break
-                    # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
+                    # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1，而且n_each_lack中对这个材料有需求的工作台也要被删除
                     if each_not_carry_robot_toward_bench[robot_id] != -1:
                         n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[robot_id]][1]] -= 1
+
         else:
             # 机器人身上有，说明一定有工作台需要
             if n_robots[robot_id][0] != -1 and n_robots[robot_id][0] == each_carry_robot_toward_bench[robot_id]:
@@ -667,21 +680,24 @@ def al_needed_benches(each_carry_robot_toward_bench):
                 al_needed_benches.append(i[0])
         # 如果缺少的数小于成品数，需要挑选好的有成品的工作台
         else:
+
             al_lack_k_benches = []
             each_lack_bench_had_material_num = []  # 每个缺材料k的工作台已经有几个成品了，索引与al_lack_k_benches一一对应
             for i in n_each_lack[k]:
                 al_lack_k_benches.append(i[0])
                 each_lack_bench_had_material_num.append(i[2])
-                # 如果这个材料是123，则再加三份，应为生产的很快
-                if k in [1, 2, 3]:
-                    for m_123 in range(3):
-                        al_lack_k_benches.append(i[0])
-                        each_lack_bench_had_material_num.append(i[2])
+
+            # 已经做好材料k的工作台id
             al_done_k_benches = []
             for i in v:
                 # 如果带着物品的机器人没有要这个工作台的才把它加进去，因为带着东西的工作台反正要去，顺手卖掉就好了，就当作这里没有成品
                 # if i[0] not in each_carry_robot_toward_bench:
                 al_done_k_benches.append(i[0])
+                # 如果这个材料是123，则再加三份，应为生产的很快
+                if k in [1, 2, 3]:
+                    al_done_k_benches.append(i[0])
+                    al_done_k_benches.append(i[0])
+                    al_done_k_benches.append(i[0])
 
             rows = len(al_done_k_benches)
             cols = len(al_lack_k_benches)
@@ -704,7 +720,6 @@ def al_needed_benches(each_carry_robot_toward_bench):
                 row_ind, col_ind = linear_sum_assignment(cost)  # row_ind是所有被选中的行的索引
                 for i in row_ind:
                     al_needed_benches.append(al_done_k_benches[i])
-
     return al_needed_benches
 
 
@@ -713,7 +728,6 @@ def each_empty_robot_target_bench(each_carry_robot_toward_bench):
     # 使用匈牙利算法需要知道每一条边的代价，构造二维数组
     #    需要知道所有的候选有成品的节点，以及每一个空的机器人到这些节点的代价
     # 初始化直接10000，防止-1卡bug
-    # test_write_file('场上还缺：{}'.format(n_each_lack))
     each_empty_robot_target_bench = [10000, 10000, 10000, 10000]
     # 确认场上哪几个机器人是空的
     empty_robot = []
@@ -839,99 +853,6 @@ def task_process_2():
             if n_robots[robot_id][0] == each_carry_robot_toward_bench[robot_id]:
 
                 each_robot_act[robot_id][2] = 1  # 卖出
-            # 如果这个机器人不能与目标工作台交易，则向他移动
-            else:
-                r_instruct = cal_instruct_1(1,
-                                            n_robots[robot_id][7],
-                                            n_robots[robot_id][6],
-                                            n_benches[each_carry_robot_toward_bench[robot_id]][2],
-                                            robot_id)
-                each_robot_act[robot_id][0] = r_instruct[0]  # 线速度
-                each_robot_act[robot_id][1] = r_instruct[1]  # 角速度
-    return each_robot_act
-
-
-# 专门买卖一个物品
-def task_process_3():
-    # 返回的是每个机器人应该进行的操作，包括线速度，角速度，买卖
-    each_robot_act = [[0, 0, -1] for _ in range(4)]  # 0，0表示线速度和角速度，0是买1是卖，-1是不进行买卖操作
-    # 这两个玩意每一帧都需要刷新，所以并不是全局变量
-    each_not_carry_robot_toward_bench = [-1, -1, -1, -1]
-    each_carry_robot_toward_bench = [-1, -1, -1, -1]
-    for robot_id in range(4):
-        # 如果机器人身上没有背东西
-        if n_robots[robot_id][1] == 0:
-            # 不管之前是否指定，只要身上没东西就没有目标
-            # 首先把所有缺的物品对应的已经生产好了的工作台放到列表中，注意，可能这个列表为空。因为可能这个缺的物品一个都没有生产出来
-            l_d_m = []  # 缺少的但是已经做好了的物品对应的工作台，这个工作台的与1号机器人的距离和这个工作台的id
-            for k, v in n_done_bench.items():
-                if n_each_lack_num[k] > 0:
-                    for bench in v:
-                        # weight
-                        weight = [0, 1, 1, 1, 4, 1, 1, 1]
-                        # 与task_process_1的差别就在这里，添加距离时不在是简单的我到成品之间的距离，还要加上成品到最近工作台的距离
-                        nearest_bench_dis = float('inf')
-                        for lack_k_bench in n_each_lack[k]:
-                            nearest_bench_dis = min(nearest_bench_dis,
-                                                    each_bench_distance[bench[0]][lack_k_bench[0]])
-                        l_d_m.append([(cal_distance(n_robots[robot_id][7][0],
-                                                    n_robots[robot_id][7][1],
-                                                    bench[1][0],
-                                                    bench[1][1]) + nearest_bench_dis) / weight[k], bench[0]])
-            # 如果已经有缺少的成品被生产出来了再进行下面的操作，否则就直接不改变默认的速度设定，也就是全0
-            if l_d_m:
-                l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123=
-                for dis, bench_id in l_d_m:
-                    if (bench_id not in each_not_carry_robot_toward_bench and robot_id == cal_bench_nearest_robot(
-                            bench_id)) or n_benches[bench_id][1] in [1, 2, 3]:
-                        each_not_carry_robot_toward_bench[robot_id] = bench_id
-                        break
-                # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
-                if each_not_carry_robot_toward_bench[robot_id] == n_robots[robot_id][0] and n_robots[robot_id][0] != -1:
-                    assumption_bench = pre_carried_robot_tar_bench(robot_id,
-                                                                   n_benches[n_robots[robot_id][0]][1])
-                    pre_time = cal_distance(n_robots[robot_id][7][0], n_robots[robot_id][7][1],
-                                            n_benches[assumption_bench][2][0],
-                                            n_benches[assumption_bench][2][1]) / 6
-                    pre_frame = pre_time * 50
-                    # 只有当时间足够卖掉是才会购买
-                    if frame_id + pre_frame <= 9000:
-                        each_robot_act[robot_id][2] = 0  # 购买
-                        # 如果这个物品是4567，那么购买之后这个成品就不在了，需要在n_done_bench中删除
-                        if n_benches[n_robots[robot_id][0]][1] in [4, 5, 6, 7]:
-                            wait_for_del = 100000  # 初始化再也不写-1了，老是倒着删除
-                            for ind, v in enumerate(n_done_bench[n_benches[n_robots[robot_id][0]][1]]):
-                                if v[0] == each_not_carry_robot_toward_bench[robot_id]:
-                                    wait_for_del = ind
-                                    break
-                            n_done_bench[n_benches[n_robots[robot_id][0]][1]].pop(wait_for_del)
-                        # n_each_lack_num[n_benches[n_robots[robot_id][0]][1]] -= 1
-                        # each_not_carry_robot_toward_bench[robot_id] = -1  # 购买之后，0号机器人就不在抢占这个工作台了
-                        # each_carry_robot_toward_bench[robot_id] = assumption_bench  # 购买之后立刻指定目标工作台id
-                        n_robots[robot_id][1] = n_benches[n_robots[robot_id][0]][1]
-                else:
-                    r_instruct = cal_instruct_1(0,
-                                                n_robots[robot_id][7],
-                                                n_robots[robot_id][6],
-                                                n_benches[each_not_carry_robot_toward_bench[robot_id]][2],
-                                                robot_id)
-                    each_robot_act[robot_id][0] = r_instruct[0]  # 线速度
-                    each_robot_act[robot_id][1] = r_instruct[1]  # 角速度
-
-        else:
-            # 机器人身上有，说明一定有工作台需要
-            each_carry_robot_toward_bench[robot_id] = pre_carried_robot_tar_bench(robot_id, n_robots[robot_id][1])
-            if n_robots[robot_id][0] != -1 and n_robots[robot_id][0] == each_carry_robot_toward_bench[robot_id]:
-                each_robot_act[robot_id][2] = 1  # 卖出
-                # each_carry_robot_toward_bench[robot_id] = -1  # 卖了之后就取消该号机器人对该工作台的抢占
-                # each_not_carry_robot_toward_bench[robot_id] = -1  # 卖掉之后我就是没有目标的了
-                # 卖掉之后这个工作台就不缺这个材料了，极限条件下，0号刚卖1号并解除了自己对这个工作台的抢占，同一帧1号就买同种材料，极有可能指向同一个工作台！
-                wait_for_del = 100000  # 初始化再也不写-1了，老是倒着删除
-                for ind, v in enumerate(n_each_lack[n_robots[robot_id][1]]):
-                    if v[0] == n_robots[robot_id][0]:
-                        wait_for_del = ind
-                        break
-                n_each_lack[n_robots[robot_id][1]].pop(wait_for_del)
             # 如果这个机器人不能与目标工作台交易，则向他移动
             else:
                 r_instruct = cal_instruct_1(1,
@@ -1394,7 +1315,7 @@ def map_4_main():
         #  设置直接忽略123工作台加工时间的地图
         # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
 
-        n_each_robot_act = task_process_2()
+        n_each_robot_act = task_process_1()
 
         sys.stdout.write('%d\n' % frame_id)
         for ind, act in enumerate(n_each_robot_act):

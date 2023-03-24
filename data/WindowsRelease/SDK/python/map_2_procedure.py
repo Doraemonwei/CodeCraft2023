@@ -161,7 +161,7 @@ def _step6(state):
     return _step4
 
 
-#  结束
+al_dont_need_bench_id = [2,6,8,13,14,15,17,19,24]
 
 
 # 读取每一帧的状态
@@ -179,11 +179,17 @@ def read_status():
             bench_id = 0  # 记录工作台的唯一id,其实就是在m_benched中的索引
             t = s_input.split(' ')
             # [工作台id, 工作台类型，[x,y], 剩余生产时间（帧）， 原材料状态（转成二进制使用）， 产品格状态]
-            m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+            if bench_id not in al_dont_need_bench_id:
+                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+            else:
+                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), 126, int(t[5])])
             for j in range(K - 1):
                 bench_id += 1
                 t = input().split(' ')
-                m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+                if bench_id not in al_dont_need_bench_id:
+                    m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), int(t[4]), int(t[5])])
+                else:
+                    m_benches.append([bench_id, int(t[0]), [float(t[1]), float(t[2])], int(t[3]), 126, int(t[5])])
         else:
             t = s_input.split(' ')
             # [可以交易的工作台id，携带物品类型，时间价值系数，碰撞价值系数, 角速度，线速度[x,y]，朝向，坐标[x,y]]
@@ -285,7 +291,10 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
     need_robot_id_type_m_benches = []  # 所有需要0号机器人背上材料的工作台[[add_weight_distance, bench_id]],加权距离，工作台id
     for bench in n_each_lack[material_type]:
         # weight是权重
-        weight = 2 ** bench[2]
+        if n_benches[bench[0]][1]!=6:
+            weight = 2 ** bench[2]
+        else:
+            weight = 6
         need_robot_id_type_m_benches.append([cal_distance(n_robots[robot_id][7][0],
                                                           n_robots[robot_id][7][1],
                                                           bench[1][0],
@@ -549,9 +558,9 @@ def map_2_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
             angle_speed = -or_angle_value
 
     # 地图边界约束，防止撞墙
-    if (distance <= 5 or (r_x <= 1 or r_x >= 48 or r_y <= 1 or r_y >= 48)) and abs(
-            robot_angle - r2b_a) >= 1.5:
-        line_speed = 0
+    # if (distance <= 5 or (r_x <= 1 or r_x >= 48 or r_y <= 1 or r_y >= 48)) and abs(
+    #         robot_angle - r2b_a) >= 1.5:
+    #     line_speed = 0
 
     # 距离目标距离对线速度的约束，防止打转
     if distance <= 3:

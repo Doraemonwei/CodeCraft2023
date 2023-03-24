@@ -1,1 +1,1 @@
-print([[0 for _ in range(0)] for _ in range(1)])
+print(int('1111110',2))
