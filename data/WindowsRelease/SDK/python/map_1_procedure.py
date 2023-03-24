@@ -7,7 +7,6 @@ import numpy as np
 
 
 # 匈牙利算法
-#    开始
 def linear_sum_assignment(cost_matrix):
     cost_matrix = np.asarray(cost_matrix)
     if len(cost_matrix.shape) != 2:
@@ -201,7 +200,7 @@ def read_status():
 
 # 帮助函数
 # 传进来工作台类型和原材料格子状态，返回这个工作台差的材料类型
-each_bench_materials = {4: {1, 2}, 5: {1, 3}, 6: {2, 3}, 7: {4, 5, 6}, 8: {7}, 9: {1, 2, 3, 4, 5, 6, 7}}  # 方便判断缺不缺材料
+each_bench_materials = {4: {1, 2}, 5: {1, 3}, 6: {2, 3}, 7: {4, 5, 6}, 8: {7}, 9: {7}}  # 方便判断缺不缺材料，对图一而言注意9号工作台只缺7
 
 
 def lack_which_material(bench_type, material_status):
@@ -269,7 +268,7 @@ def init_frame():
     # 如果场上有9工作台，需要对each_lack_num特殊处理
     for i in n_benches:
         if i[1] == 9:
-            each_lack_num = [0, 10000, 100000, 10000, 100000, 100000, 100000, 100000, 10000]
+            each_lack_num[7] = 1000
             break
     return type_lack, robot_carry, each_lack, done_bench, each_lack_num
 
@@ -348,7 +347,7 @@ def artificial_potential_field(m_loc, m_angle, obstacle_loc):
     return 0
 
 
-# 给定两个机器人的id，判断在接下来的一秒内他们是否会相撞
+# 给定两个机器人的id，判断在接下来的4秒内他们是否会相撞
 def simple_dwa(r_id1, r_id2):
     # 简单的运动学模型，xy坐标，速度，角速度，与x轴正方向的夹角
     # 返回20ms后的xy坐标，速度，角速度，与x轴正方向的夹角
@@ -358,13 +357,13 @@ def simple_dwa(r_id1, r_id2):
         theta = theta + w * 0.02
         return x, y, v, w, theta
 
-    # 计算机器人1在1s，也就是50个20ms之内的额所有状态点
+    # 计算机器人1在1s，也就是100个20ms之内的额所有状态点
     x1, y1 = n_robots[r_id1][7]
     v1 = math.sqrt(n_robots[r_id1][5][0] ** 2 + n_robots[r_id1][5][1] ** 2)
     w1 = n_robots[r_id1][4]
     theta1 = n_robots[r_id1][6]
     r1_locations = [[x1, y1]]
-    for i in range(100):
+    for i in range(200):
         x1, y1, v1, w1, theta1 = KinematicModel(x1, y1, v1, w1, theta1)
         r1_locations.append([x1, y1])
 
@@ -374,28 +373,70 @@ def simple_dwa(r_id1, r_id2):
     w2 = n_robots[r_id2][4]
     theta2 = n_robots[r_id2][6]
     r2_locations = [[x2, y2]]
-    for i in range(100):
+    for i in range(200):
         x2, y2, v2, w2, theta2 = KinematicModel(x2, y2, v2, w2, theta2)
         r2_locations.append([x2, y2])
 
     # 计算是否会碰撞，即计算之间的距离最近是否超过了二者半径和
     # 有一个带了东西
-    if (n_robots[r_id1][1] !=0 and n_robots[r_id2][1] == 0) or (n_robots[r_id2][1] !=0 and n_robots[r_id1][1] == 0):
+    if (n_robots[r_id1][1] != 0 and n_robots[r_id2][1] == 0) or (n_robots[r_id2][1] != 0 and n_robots[r_id1][1] == 0):
         collision_r = 0.98
     # 都没带
-    elif n_robots[r_id1][1] ==0 and n_robots[r_id2][1] == 0:
+    elif n_robots[r_id1][1] == 0 and n_robots[r_id2][1] == 0:
         collision_r = 0.9
     # 都带了
     else:
         collision_r = 1.06
     collision = False
     for i in range(len(r1_locations)):
-        if cal_distance(r1_locations[i][0],r1_locations[i][1],r2_locations[i][0],r2_locations[i][1])<=collision_r:
+        if cal_distance(r1_locations[i][0], r1_locations[i][1], r2_locations[i][0], r2_locations[i][1]) <= collision_r:
             collision = True
             break
     return collision
 
 
+# 如果检测出来要相撞，如何转向
+def decide_angle_speed(m_id, nearest_id):
+    # 距离最近的那个机器人指向这个机器人的向量
+    v_1 = [n_robots[m_id][7][0] - n_robots[nearest_id][7][0],
+           n_robots[m_id][7][1] - n_robots[nearest_id][7][1]]
+    quadrant = 1
+    if v_1[0] >= 0:
+        if v_1[1] > 0:
+            quadrant = 1
+        else:
+            quadrant = 4
+    else:
+        if v_1[1] > 0:
+            quadrant = 2
+        else:
+            quadrant = 3
+    # 计算最近机器人指向我的向量与x轴正方向的夹角alpha
+    alpha = math.atan2(v_1[1], v_1[0])
+    # 离我最近的机器人朝向theta
+    theta = n_robots[nearest_id][6]
+    re_angle_speed = 0
+    if quadrant == 1:
+        if -1 * math.pi / 2 <= theta <= alpha:
+            re_angle_speed = -3.4
+        if alpha <= theta <= math.pi:
+            re_angle_speed = 3.4
+    elif quadrant == 4:
+        if alpha <= theta <= math.pi / 2:
+            re_angle_speed = 3.4
+        if -1 * math.pi <= theta <= alpha:
+            re_angle_speed = -3.4
+    elif quadrant == 3:
+        if alpha <= theta <= 0:
+            re_angle_speed = 3.4
+        if -1 * math.pi <= theta <= 0 or math.pi / 2 <= theta <= math.pi:
+            re_angle_speed = -3.4
+    else:
+        if 0 <= theta <= alpha:
+            re_angle_speed = -3.4
+        elif -1 * math.pi <= theta <= -1 * math.pi / 2 or alpha <= theta <= math.pi:
+            re_angle_speed = 3.4
+    return re_angle_speed
 
 
 # 专门计算地图一的运动控制
@@ -465,52 +506,55 @@ def map_1_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
     # 使用简单的避障方式避障
     use_simple_collision_avoidance = True
     if use_simple_collision_avoidance:
-        warning_distance = 4
+        warning_distance = 6
         # 防止机器人之间的碰撞
         if nearest_distance <= warning_distance:
+            if simple_dwa(robot_id, nearest_robot_id) and robot_id > nearest_robot_id:
+                angle_speed = decide_angle_speed(robot_id, nearest_robot_id)
+                # angle_speed = artificial_potential_field(robot_loc, robot_angle, n_robots[nearest_robot_id][7]) # 人工势场法避障
             # 这个机器人指向最近那个机器人的向量
-            vector_1 = [n_robots[nearest_robot_id][7][0] - robot_loc[0],
-                        n_robots[nearest_robot_id][7][1] - robot_loc[1]]
-            # 距离最近的那个机器人指向这个机器人的向量
-            vector_2 = [robot_loc[0] - n_robots[nearest_robot_id][7][0],
-                        robot_loc[1] - n_robots[nearest_robot_id][7][1]]
-            # 这个机器人与 这个机器人指向最近那个机器人的向量 之间的夹角余弦
-            m_v = n_robots[robot_id][5]  # 这个机器人的速度向量
-            t_1 = math.sqrt(m_v[0] ** 2 + m_v[1] ** 2) * math.sqrt(vector_1[0] ** 2 + vector_1[1] ** 2)
-            cos_theta_1 = (m_v[0] * vector_1[0] + m_v[1] * vector_1[1]) / t_1 if t_1 != 0 else 0
-            # 距离最近的那个机器人与 距离最近的那个机器人指向这个机器人的向量 之间的夹角
-            tar_robot_v = n_robots[nearest_robot_id][5]
-            t_2 = (math.sqrt(tar_robot_v[0] ** 2 + tar_robot_v[1] ** 2) * math.sqrt(
-                vector_2[0] ** 2 + vector_2[1] ** 2))
-            cos_theta_2 = (tar_robot_v[0] * vector_2[0] + tar_robot_v[1] * vector_2[1]) / t_2 if t_2 != 0 else 0
+            # vector_1 = [n_robots[nearest_robot_id][7][0] - robot_loc[0],
+            #             n_robots[nearest_robot_id][7][1] - robot_loc[1]]
+            # # 距离最近的那个机器人指向这个机器人的向量
+            # vector_2 = [robot_loc[0] - n_robots[nearest_robot_id][7][0],
+            #             robot_loc[1] - n_robots[nearest_robot_id][7][1]]
+            # # 这个机器人与 这个机器人指向最近那个机器人的向量 之间的夹角余弦
+            # m_v = n_robots[robot_id][5]  # 这个机器人的速度向量
+            # t_1 = math.sqrt(m_v[0] ** 2 + m_v[1] ** 2) * math.sqrt(vector_1[0] ** 2 + vector_1[1] ** 2)
+            # cos_theta_1 = (m_v[0] * vector_1[0] + m_v[1] * vector_1[1]) / t_1 if t_1 != 0 else 0
+            # # 距离最近的那个机器人与 距离最近的那个机器人指向这个机器人的向量 之间的夹角
+            # tar_robot_v = n_robots[nearest_robot_id][5]
+            # t_2 = (math.sqrt(tar_robot_v[0] ** 2 + tar_robot_v[1] ** 2) * math.sqrt(
+            #     vector_2[0] ** 2 + vector_2[1] ** 2))
+            # cos_theta_2 = (tar_robot_v[0] * vector_2[0] + tar_robot_v[1] * vector_2[1]) / t_2 if t_2 != 0 else 0
             # 只要有一个小于cos_theta<=0就说明不会撞，所以只考虑都大于0的情况
-            if cos_theta_1 >= 0 and cos_theta_2 >= 0:
-                # 判定角90°对于3是挺友好的，对其他的不行
-                # judge_angle = 45 if which_map[map_mark] in [2, 3, 4] else 90
-                judge_angle = -62 * nearest_distance + 248
-                if simple_dwa(robot_id, nearest_robot_id):
-                # if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle or simple_dwa(robot_id, nearest_robot_id):
-                # if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle:
-                    # 小车上下运动和左右运动是不一样的
-                    #  前后运动
-                    if abs(n_robots[robot_id][5][0]) >= abs(n_robots[robot_id][5][1]):
-                        # y0>y1 and x0<x1      y0<y1 and x0>x1  逆时针
-                        if (robot_loc[1] >= n_robots[nearest_robot_id][7][1] and robot_loc[0] <=
-                            n_robots[nearest_robot_id][7][0]) or ((
-                                robot_loc[1] <= n_robots[nearest_robot_id][7][1] and robot_loc[0] >=
-                                n_robots[nearest_robot_id][7][0])):
-                            angle_speed = 3.4
-                        else:
-                            angle_speed = -3.4
-                    # 上下运动
-                    else:
-                        if (robot_loc[1] > n_robots[nearest_robot_id][7][1] and robot_loc[0] >
-                            n_robots[nearest_robot_id][7][0]) or ((
-                                robot_loc[1] < n_robots[nearest_robot_id][7][1] and robot_loc[0] <
-                                n_robots[nearest_robot_id][7][0])):
-                            angle_speed = 3.4
-                        else:
-                            angle_speed = -3.4
+            # if cos_theta_1 >= 0 and cos_theta_2 >= 0:
+            #     # 判定角90°对于3是挺友好的，对其他的不行
+            #     # judge_angle = 45 if which_map[map_mark] in [2, 3, 4] else 90
+            #     judge_angle = -62 * nearest_distance + 248
+            #     if simple_dwa(robot_id, nearest_robot_id):
+            #         # if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle or simple_dwa(robot_id, nearest_robot_id):
+            #         # if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle:
+            #         # 小车上下运动和左右运动是不一样的
+            #         #  前后运动
+            #         if abs(n_robots[robot_id][5][0]) >= abs(n_robots[robot_id][5][1]):
+            #             # y0>y1 and x0<x1      y0<y1 and x0>x1  逆时针
+            #             if (robot_loc[1] >= n_robots[nearest_robot_id][7][1] and robot_loc[0] <=
+            #                 n_robots[nearest_robot_id][7][0]) or ((
+            #                     robot_loc[1] <= n_robots[nearest_robot_id][7][1] and robot_loc[0] >=
+            #                     n_robots[nearest_robot_id][7][0])):
+            #                 angle_speed = 3.4
+            #             else:
+            #                 angle_speed = -3.4
+            #         # 上下运动
+            #         else:
+            #             if (robot_loc[1] > n_robots[nearest_robot_id][7][1] and robot_loc[0] >
+            #                 n_robots[nearest_robot_id][7][0]) or ((
+            #                     robot_loc[1] < n_robots[nearest_robot_id][7][1] and robot_loc[0] <
+            #                     n_robots[nearest_robot_id][7][0])):
+            #                 angle_speed = 3.4
+            #             else:
+            #                 angle_speed = -3.4
 
     # 使用人工势场法避障
     use_artificial_potential_field = False
@@ -539,11 +583,66 @@ def bench_7_lack():
     return bench7_lack_materials
 
 
+# 权重计算
+# 传入当前成品的类型，返回等级 一共9等，暂时没有完成，放弃了
+def cal_weight(material_type):
+    # 物品7直接1档
+    if material_type == 7:
+        return 1
+    if material_type in [4, 5, 6]:
+        re = 5
+        # re只取最小的那个，即等级最高的那个
+        for bench in n_benches:
+            if bench[1] == 7:
+                lack, had = lack_which_material(7, bench[4])
+                # 7类工作台不缺我
+                if material_type not in lack:
+                    continue
+                # 7类工作台缺我
+                else:
+                    # 就缺我
+                    if len(lack) == 1:
+                        re = min(re, 2)
+                    # 缺两个，我是之一
+                    elif len(lack) == 2:
+                        re = min(re, 3)
+                    # 缺三个，我是之一
+                    else:
+                        re = min(re, 4)
+    # 如果是材料123
+    al_material = set()
+    for bench in n_benches:
+        if bench[5] == 1 or bench[3] != -1:
+            al_material.add(bench[1])
+    if material_type in [1, 2, 3]:
+        bench_7_lack_m = bench_7_lack()
+        if material_type == 1:
+            # 如果缺45且场上没有45成品 1的等级就会变高
+            if (bench_7_lack_m[4] == 1 and 4 not in al_material) or (bench_7_lack_m[5] == 1 and 5 not in al_material):
+                return 5
+            else:
+                return 6
+        if material_type == 2:
+            # 如果缺45且场上没有46成品 2的等级就会变高
+            if (bench_7_lack_m[4] == 1 and 4 not in al_material) or (bench_7_lack_m[6] == 1 and 6 not in al_material):
+                return 5
+            else:
+                return 6
+        if material_type == 3:
+            # 如果缺56且场上没有56成品 3的等级就会变高
+            if (bench_7_lack_m[4] == 1 and 4 not in al_material) or (bench_7_lack_m[5] == 1 and 5 not in al_material):
+                return 5
+            else:
+                return 6
+    return 6
+
+
 each_not_carry_robot_toward_bench = [-1] * 4  # 所有身上没有背着东西的机器人准备去的工作台序号，-1表示没有
 each_carry_robot_toward_bench = [-1] * 4  # 所有身上带着东西的机器人准备去的工作台序号，-1表示没有
 
 
 # 空车时直接拿  机器人到成品距离+将成品运送到目标工作台距离最近的那个
+#   所有物品的权重一样
 def task_process_1():
     # 返回的是每个机器人应该进行的操作，包括线速度，角速度，买卖
     each_robot_act = [[0, 0, -1] for _ in range(4)]  # 0，0表示线速度和角速度，0是买1是卖，-1是不进行买卖操作
@@ -576,13 +675,15 @@ def task_process_1():
             else:
                 # 首先把所有缺的物品对应的已经生产好了的工作台放到列表中，注意，可能这个列表为空。因为可能这个缺的物品一个都没有生产出来
                 l_d_m = []  # 缺少的但是已经做好了的物品对应的工作台，这个工作台的与1号机器人的距离和这个工作台的id
-
                 for k, v in n_done_bench.items():
                     if n_each_lack_num[k] > 0:
                         # 因为n_done_bench这个字典的值是列表类型，所以需要遍历一个个取
                         for bench in v:
                             # weight
-                            weight = 1 if n_benches[bench[0]][1] != 7 else 3
+                            # weight = [0, 30, 32, 34, 71, 78, 83, 290]
+                            # weight = 2**(6-cal_weight(n_benches[bench[0]][1]))
+                            weight = [0, 1, 1, 1, 1, 1, 1, 1]
+                            weight = weight[n_benches[bench[0]][1]]
                             l_d_m.append([cal_distance(n_robots[robot_id][7][0],
                                                        n_robots[robot_id][7][1],
                                                        bench[1][0],
@@ -591,7 +692,7 @@ def task_process_1():
                 if l_d_m:
                     l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123
                     for dis, bench_id in l_d_m:
-                        if bench_id not in each_not_carry_robot_toward_bench:
+                        if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in [1, 2, 3]:
                             each_not_carry_robot_toward_bench[robot_id] = bench_id
                             break
                     # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
@@ -611,7 +712,6 @@ def task_process_1():
                         wait_for_del = ind
                         break
                 n_each_lack[n_robots[robot_id][1]].pop(wait_for_del)
-
             # 如果这个机器人不能与目标工作台交易，则向他移动
             else:
                 r_instruct = cal_instruct_1(1,
@@ -637,7 +737,7 @@ def cal_bench_nearest_robot(bench_id):
     return re
 
 
-# 所有被需要的有成品的而且没有被已经有物品的机器人顶上的工作台的id
+# 所有被需要的有成品的而且没有被已经有物品的机器人盯上的工作台的id
 def al_needed_benches(each_carry_robot_toward_bench):
     # 所有有成品的而且场上需要这个成品的工作台
     al_needed_benches = []
@@ -682,12 +782,10 @@ def al_needed_benches(each_carry_robot_toward_bench):
                         each_lack2done_weight_dis[i][j] = each_bench_distance[al_lack_k_benches[j]][
                                                               al_done_k_benches[i]] / (
                                                                   each_lack_bench_had_material_num[j] + 1)
-
                 cost = np.array(each_lack2done_weight_dis)
                 row_ind, col_ind = linear_sum_assignment(cost)  # row_ind是所有被选中的行的索引
                 for i in row_ind:
                     al_needed_benches.append(al_done_k_benches[i])
-
     return al_needed_benches
 
 
@@ -754,14 +852,10 @@ def each_empty_robot_target_bench(each_carry_robot_toward_bench):
                                         n_benches[al_needed_bench[i]][2][1]) + each_bench_distance[al_needed_bench[i]][
                                asumption_bench_id]
                 each_robot2donebench_weight_dis[i][j] = true_dis / weight[n_benches[al_needed_bench[i]][1]]
-
         cost = np.array(each_robot2donebench_weight_dis)
         row_ind, col_ind = linear_sum_assignment(cost)  # row_ind是所有被选中的行的索引
         for i in range(len(row_ind)):
             each_empty_robot_target_bench[empty_robot[col_ind[i]]] = al_needed_bench[row_ind[i]]
-        #
-        # if frame_id in [i for i in range(1700, 2000)]:
-        #     test_write_file('each_empty_robot:{}\nbench_7_lack_m：{} \ncost:{}, \neach_empty_robot_target_bench:{}'.format(empty_robot,bench_7_lack_m,cost,each_empty_robot_target_bench))
 
     return each_empty_robot_target_bench
 
@@ -792,9 +886,9 @@ def each_carried_robot_toward_bench():
     return each_carry_robot_toward_bench
 
 
-# 若无特殊情况，应该以这个分配方案为基准进行改变
 # 空手选择拿什么物品时，优先选择机器人到成品之间的距离+成品到所缺工作台的距离 加权较小的那个成品
 #    若较多则使用匈牙利算法进行分配
+# 每一帧都重新分配
 def task_process_2():
     # 返回的是每个机器人应该进行的操作，包括线速度，角速度，买卖
     each_robot_act = [[0, 0, -1] for _ in range(4)]  # 0，0表示线速度和角速度，0是买1是卖，-1是不进行买卖操作
@@ -831,11 +925,7 @@ def task_process_2():
                 each_robot_act[robot_id][1] = r_instruct[1]  # 角速度
         else:
             # 机器人身上有，说明一定有工作台需要
-            # each_carry_robot_toward_bench[robot_id] = pre_carried_robot_tar_bench(robot_id, n_robots[robot_id][1])
-            # if each_carry_robot_toward_bench[robot_id] != 10000:
-            # test_write_file('当前机器人id：{}，目标工作台是：{}'.format(robot_id, each_carry_robot_toward_bench[robot_id]))
             if n_robots[robot_id][0] == each_carry_robot_toward_bench[robot_id]:
-
                 each_robot_act[robot_id][2] = 1  # 卖出
             # 如果这个机器人不能与目标工作台交易，则向他移动
             else:
@@ -972,7 +1062,6 @@ def task_process_for_map_1():
                     break
 
     # 机器人0的指令已经设置完毕，下面是机器人1的指令
-
     # 如果机器人1没有携带物品
     if n_robots[1][1] == 0:
         # 如果全场没有缺少的，直接把速度和角速度降到0,也不用进行买卖
@@ -1197,8 +1286,6 @@ def task_process_for_map_1():
                     break
     return each_robot_act
 
-
-# 永远拿可以拿的离我最近的成品
 
 # 初始化地图，得到所有工作台和机器人的坐标以及序号
 def read_map_util_ok():
