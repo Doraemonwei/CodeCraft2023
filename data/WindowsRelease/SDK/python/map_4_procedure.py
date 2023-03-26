@@ -3,10 +3,7 @@ import math
 import sys
 from collections import defaultdict
 
-import numpy as np
-
-
-al_dont_need_bench_id = [10,13]
+al_dont_need_bench_id = [10, 13]
 
 # 读取每一帧的状态
 def read_status():
@@ -124,10 +121,8 @@ def init_frame():
             break
     return type_lack, robot_carry, each_lack, done_bench, each_lack_num
 
-
 # 传入机器人id和假设的放在它身上的货品类型，返回这种假设下它应该去的工作台id
 def pre_carried_robot_tar_bench(robot_id, assumption_carry):
-
     # 如果当前机器人没有携带物品就将假设的这个物品给他
     if n_robots[robot_id][1] == 0:
         material_type = assumption_carry
@@ -143,7 +138,6 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
                                                           bench[1][0],
                                                           bench[1][1]) / weight,
                                              bench[0]])
-
     need_robot_id_type_m_benches.sort()  # 按照加权距离进行排序
     # 我的目标点应该是哪个工作台
     asumption_target_bench = 10000
@@ -170,8 +164,6 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
     return asumption_target_bench
 
 
-
-
 # 给定两个机器人的id，判断在接下来的两秒秒内他们是否会相撞
 def simple_dwa(r_id1, r_id2):
     # 简单的运动学模型，xy坐标，速度，角速度，与x轴正方向的夹角
@@ -181,7 +173,6 @@ def simple_dwa(r_id1, r_id2):
         y = y + v * math.sin(theta) * 0.02
         theta = theta + w * 0.02
         return x, y, v, w, theta
-
     # 计算机器人1在1s，也就是50个20ms之内的额所有状态点
     x1, y1 = n_robots[r_id1][7]
     v1 = math.sqrt(n_robots[r_id1][5][0] ** 2 + n_robots[r_id1][5][1] ** 2)
@@ -318,11 +309,10 @@ def map_4_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
             if t < nearest_distance:
                 nearest_robot_id = r_i
                 nearest_distance = t
-
     # 使用简单的避障方式避障
     use_simple_collision_avoidance = True
     if use_simple_collision_avoidance:
-        warning_distance = 6
+        warning_distance = 5.6
         # 防止机器人之间的碰撞
         if nearest_distance <= warning_distance:
             if simple_dwa(robot_id, nearest_robot_id) and robot_id > nearest_robot_id:
@@ -344,10 +334,9 @@ def map_4_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
                 cos_theta_2 = (tar_robot_v[0] * vector_2[0] + tar_robot_v[1] * vector_2[1]) / t_2 if t_2 != 0 else 0
                 # 只要有一个小于cos_theta<=0就说明不会撞，所以只考虑都大于0的情况
                 if cos_theta_1 >= 0 and cos_theta_2 >= 0:
-                    # 判定角90°对于3是挺友好的，对其他的不行
-                    judge_angle = 45
-                    if simple_dwa(robot_id,nearest_robot_id):
-                    # if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle:
+
+                    if simple_dwa(robot_id, nearest_robot_id):
+                        # if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle:
                         # 小车上下运动和左右运动是不一样的
                         #  前后运动
                         if abs(n_robots[robot_id][5][0]) >= abs(n_robots[robot_id][5][1]):
@@ -368,7 +357,6 @@ def map_4_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
                                 angle_speed = 3.4
                             else:
                                 angle_speed = -3.4
-
     return [line_speed, angle_speed]
 
 
@@ -394,7 +382,8 @@ def task_process_1():
                 if each_not_carry_robot_toward_bench[robot_id] == n_robots[robot_id][0]:
                     assumption_bench = pre_carried_robot_tar_bench(robot_id, n_benches[n_robots[robot_id][0]][1])
                     # 只有当时间足够卖掉是才会购买
-                    if frame_id <= 8758:
+                    if frame_id <= 8696 or (frame_id > 8696 and n_benches[n_robots[robot_id][0]][1] in [3, 5]):
+
                         each_robot_act[robot_id][2] = 0  # 购买
                         each_not_carry_robot_toward_bench[robot_id] = -1  # 购买之后，0号机器人就不在抢占这个工作台了
                         each_carry_robot_toward_bench[robot_id] = assumption_bench  # 购买之后立刻指定目标工作台id
@@ -423,7 +412,7 @@ def task_process_1():
                 if l_d_m:
                     l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123
                     for dis, bench_id in l_d_m:
-                        if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in []:
+                        if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in [1, 2, 3]:
                             each_not_carry_robot_toward_bench[robot_id] = bench_id
                             break
                     # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1，而且n_each_lack中对这个材料有需求的工作台也要被删除
@@ -454,6 +443,7 @@ def task_process_1():
                 each_robot_act[robot_id][0] = r_instruct[0]  # 线速度
                 each_robot_act[robot_id][1] = r_instruct[1]  # 角速度
     return each_robot_act
+
 
 # 初始化地图，得到所有工作台和机器人的坐标以及序号
 def read_map_util_ok():
@@ -521,9 +511,7 @@ def map_4_main():
         # 这一帧每个机器人应该执行的操作
         #  设置直接忽略123工作台加工时间的地图
         # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
-
         n_each_robot_act = task_process_1()
-
         sys.stdout.write('%d\n' % frame_id)
         for ind, act in enumerate(n_each_robot_act):
             sys.stdout.write('forward %d %f\n' % (ind, act[0]))
@@ -534,9 +522,7 @@ def map_4_main():
             elif act[2] == 1:
                 sys.stdout.write('sell %d \n' % ind)
         # end_time = time.perf_counter()
-        # test_write_file('这一帧使用时间为：{}ms'.format((end_time - start_time) * 1000))
         finish()
-
 
 if __name__ == '__main__':
     map_4_main()
