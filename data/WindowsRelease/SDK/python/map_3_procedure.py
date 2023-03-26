@@ -13,19 +13,14 @@ def linear_sum_assignment(cost_matrix):
         raise ValueError("expected a matrix (2-d array), got a %r array"
                          % (cost_matrix.shape,))
 
-    # The algorithm expects more columns than rows in the cost matrix.
-    '''代价矩阵需要列数 ≥ 行数'''
     if cost_matrix.shape[1] < cost_matrix.shape[0]:
         cost_matrix = cost_matrix.T
         transposed = True
     else:
         transposed = False
+    state = Hungary(cost_matrix)
 
-    state = _Hungary(cost_matrix)
-
-    # No need to bother with assignments if one of the dimensions
-    # of the cost matrix is zero-length.
-    step = None if 0 in cost_matrix.shape else _step1
+    step = None if 0 in cost_matrix.shape else step1
 
     while step is not None:
         step = step(state)
@@ -37,17 +32,9 @@ def linear_sum_assignment(cost_matrix):
     return np.where(marked == 1)
 
 
-class _Hungary(object):
-    """State of the Hungarian algorithm.
-    Parameters
-    ----------
-    cost_matrix : 2D matrix
-        The cost matrix. Must have shape[1] >= shape[0].
-    """
-
+class Hungary(object):
     def __init__(self, cost_matrix):
         self.C = cost_matrix.copy()
-
         n, m = self.C.shape
         self.row_uncovered = np.ones(n, dtype=bool)
         self.col_uncovered = np.ones(m, dtype=bool)
@@ -57,12 +44,11 @@ class _Hungary(object):
         self.marked = np.zeros((n, m), dtype=int)
 
     def _clear_covers(self):
-        """Clear all covered matrix cells"""
         self.row_uncovered[:] = True
         self.col_uncovered[:] = True
 
 
-def _step1(state):
+def step1(state):
     state.C -= state.C.min(axis=1)[:, np.newaxis]
     for i, j in zip(*np.where(state.C == 0)):
         if state.col_uncovered[j] and state.row_uncovered[i]:
@@ -70,17 +56,17 @@ def _step1(state):
             state.col_uncovered[j] = False
             state.row_uncovered[i] = False
     state._clear_covers()
-    return _step3
+    return step3
 
 
-def _step3(state):
+def step3(state):
     marked = (state.marked == 1)
     state.col_uncovered[np.any(marked, axis=0)] = False
     if marked.sum() < state.C.shape[0]:
-        return _step4
+        return step4
 
 
-def _step4(state):
+def step4(state):
     C = (state.C == 0).astype(int)
     covered_C = C * state.row_uncovered[:, np.newaxis]
     covered_C *= np.asarray(state.col_uncovered, dtype=int)
@@ -88,16 +74,13 @@ def _step4(state):
     m = state.C.shape[1]
 
     while True:
-        # Find an uncovered zero
         row, col = np.unravel_index(np.argmax(covered_C), (n, m))
         if covered_C[row, col] == 0:
             return _step6
         else:
             state.marked[row, col] = 2
-            # Find the first starred element in the row
             star_col = np.argmax(state.marked[row] == 1)
             if state.marked[row, star_col] != 1:
-                # Could not find one
                 state.Z0_r = row
                 state.Z0_c = col
                 return _step5
@@ -115,21 +98,16 @@ def _step5(state):
     path = state.path
     path[count, 0] = state.Z0_r
     path[count, 1] = state.Z0_c
-
     while True:
-        # Find the first starred element in the col defined by
-        # the path.
         row = np.argmax(state.marked[:, path[count, 1]] == 1)
         if state.marked[row, path[count, 1]] != 1:
-            # Could not find one
+
             break
         else:
             count += 1
             path[count, 0] = row
             path[count, 1] = path[count - 1, 1]
 
-        # Find the first prime element in the row defined by the
-        # first path step
         col = np.argmax(state.marked[path[count, 0]] == 2)
         if state.marked[row, col] != 2:
             col = -1
@@ -137,7 +115,6 @@ def _step5(state):
         path[count, 0] = path[count - 1, 0]
         path[count, 1] = col
 
-    # Convert paths
     for i in range(count + 1):
         if state.marked[path[i, 0], path[i, 1]] == 1:
             state.marked[path[i, 0], path[i, 1]] = 0
@@ -145,22 +122,18 @@ def _step5(state):
             state.marked[path[i, 0], path[i, 1]] = 1
 
     state._clear_covers()
-    # Erase all prime markings
     state.marked[state.marked == 2] = 0
-    return _step3
+    return step3
 
 
 def _step6(state):
-    # the smallest uncovered value in the matrix
     if np.any(state.row_uncovered) and np.any(state.col_uncovered):
         minval = np.min(state.C[state.row_uncovered], axis=0)
         minval = np.min(minval[state.col_uncovered])
         state.C[~state.row_uncovered] += minval
         state.C[:, state.col_uncovered] -= minval
-    return _step4
+    return step4
 
-
-#  结束
 
 
 # 读取每一帧的状态
@@ -520,8 +493,6 @@ def map_3_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
                 # 只要有一个小于cos_theta<=0就说明不会撞，所以只考虑都大于0的情况
                 if cos_theta_1 > 0 and cos_theta_2 > 0:
                     # 判定角90°对于3是挺友好的，对其他的不行
-                    # judge_angle = 45 if which_map[map_mark] in [2, 3, 4] else 90
-                    judge_angle = 90
                     if simple_dwa(robot_id, nearest_robot_id):
                     # if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle:
                         # 小车上下运动和左右运动是不一样的
@@ -569,87 +540,6 @@ def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
 each_not_carry_robot_toward_bench = [-1] * 4  # 所有身上没有背着东西的机器人准备去的工作台序号，-1表示没有
 each_carry_robot_toward_bench = [-1] * 4  # 所有身上带着东西的机器人准备去的工作台序号，-1表示没有
 
-
-# 空车时直接拿最近的那个
-def task_process_1():
-    # 返回的是每个机器人应该进行的操作，包括线速度，角速度，买卖
-    each_robot_act = [[0, 0, -1] for _ in range(4)]  # 0，0表示线速度和角速度，0是买1是卖，-1是不进行买卖操作
-    for robot_id in range(4):
-        # 如果机器人身上没有背东西
-        if n_robots[robot_id][1] == 0:
-            if sum(n_each_lack_num) == 0:
-                each_robot_act[robot_id] = [0, 0, -1]
-            elif each_not_carry_robot_toward_bench[robot_id] != -1:
-                if each_not_carry_robot_toward_bench[robot_id] == n_robots[robot_id][0]:
-                    assumption_bench = pre_carried_robot_tar_bench(robot_id, n_benches[n_robots[robot_id][0]][1])
-                    pre_time = cal_distance(n_robots[robot_id][7][0], n_robots[robot_id][7][1],
-                                            n_benches[assumption_bench][2][0],
-                                            n_benches[assumption_bench][2][1]) / 6
-                    pre_frame = pre_time * 50
-                    # 只有当时间足够卖掉是才会购买
-                    if frame_id + pre_frame <= 9000:
-                        each_robot_act[robot_id][2] = 0  # 购买
-                        each_not_carry_robot_toward_bench[robot_id] = -1  # 购买之后，0号机器人就不在抢占这个工作台了
-                        each_carry_robot_toward_bench[robot_id] = assumption_bench  # 购买之后立刻指定目标工作台id
-                        n_robots[robot_id][1] = n_benches[n_robots[robot_id][0]][1]
-                else:
-                    # r_instruct_是计算出来的机器人需要执行的命令
-                    r_instruct = cal_instruct_1(0,
-                                                n_robots[robot_id][7],
-                                                n_robots[robot_id][6],
-                                                n_benches[each_not_carry_robot_toward_bench[robot_id]][2],
-                                                robot_id)
-                    each_robot_act[robot_id][0] = r_instruct[0]  # 线速度
-                    each_robot_act[robot_id][1] = r_instruct[1]  # 角速度
-            else:
-                # 首先把所有缺的物品对应的已经生产好了的工作台放到列表中，注意，可能这个列表为空。因为可能这个缺的物品一个都没有生产出来
-                l_d_m = []  # 缺少的但是已经做好了的物品对应的工作台，这个工作台的与1号机器人的距离和这个工作台的id
-
-                for k, v in n_done_bench.items():
-                    if n_each_lack_num[k] > 0:
-                        # 因为n_done_bench这个字典的值是列表类型，所以需要遍历一个个取
-                        for bench in v:
-                            # weight
-                            weight = 1 if n_benches[bench[0]][1] != 7 else 3
-                            l_d_m.append([cal_distance(n_robots[robot_id][7][0],
-                                                       n_robots[robot_id][7][1],
-                                                       bench[1][0],
-                                                       bench[1][1]) / weight, bench[0]])
-                # 如果已经有缺少的成品被生产出来了再进行下面的操作，否则就直接不改变默认的速度设定，也就是全0
-                if l_d_m:
-                    l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123
-                    for dis, bench_id in l_d_m:
-                        # 在这里忽略123工作台的数量，设为无限
-                        if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in [1, 2, 3]:
-                            each_not_carry_robot_toward_bench[robot_id] = bench_id
-                            break
-                    # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
-                    if each_not_carry_robot_toward_bench[robot_id] != -1:
-                        n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[robot_id]][1]] -= 1
-        else:
-            # 机器人身上有，说明一定有工作台需要
-            if n_robots[robot_id][0] != -1 and n_robots[robot_id][0] == each_carry_robot_toward_bench[robot_id]:
-                each_robot_act[robot_id][2] = 1  # 卖出
-                each_carry_robot_toward_bench[robot_id] = -1  # 卖了之后就取消该号机器人对该工作台的抢占
-                each_not_carry_robot_toward_bench[robot_id] = -1  # 卖掉之后我就是没有目标的了
-                # 卖掉之后这个工作台就不缺这个材料了，极限条件下，0号刚卖1号并解除了自己对这个工作台的抢占，同一帧1号就买同种材料，极有可能指向同一个工作台！
-                wait_for_del = 100000  # 初始化再也不写-1了，老是倒着删除
-                for ind, v in enumerate(n_each_lack[n_robots[robot_id][1]]):
-                    if v[0] == n_robots[robot_id][0]:
-                        wait_for_del = ind
-                        break
-                n_each_lack[n_robots[robot_id][1]].pop(wait_for_del)
-
-            # 如果这个机器人不能与目标工作台交易，则向他移动
-            else:
-                r_instruct = cal_instruct_1(1,
-                                            n_robots[robot_id][7],
-                                            n_robots[robot_id][6],
-                                            n_benches[each_carry_robot_toward_bench[robot_id]][2],
-                                            robot_id)
-                each_robot_act[robot_id][0] = r_instruct[0]  # 线速度
-                each_robot_act[robot_id][1] = r_instruct[1]  # 角速度
-    return each_robot_act
 
 
 # 计算距离这个工作台最近的没有装东西的机器人id，如果所有的机器人都装着东西，就返回-1
