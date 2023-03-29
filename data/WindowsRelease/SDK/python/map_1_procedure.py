@@ -2,7 +2,7 @@
 import math
 import sys
 from collections import defaultdict
-
+import time
 import numpy as np
 
 
@@ -320,7 +320,7 @@ def map_1_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
                 nearest_distance = t
 
     # 使用简单的避障方式避障
-    use_simple_collision_avoidance = True
+    use_simple_collision_avoidance = False
     if use_simple_collision_avoidance:
         warning_distance = 2
         # 防止机器人之间的碰撞
@@ -329,36 +329,6 @@ def map_1_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
                 angle_speed = decide_angle_speed(robot_id, nearest_robot_id)
 
 
-
-    # 防止把另一个更靠近41的工作台挤死
-    if robot_loc[0] < 3 and robot_loc[1] <= 3:
-        m_2_bench41 = cal_distance(robot_loc[0], robot_loc[1], n_benches[41][2][0], n_benches[41][2][1])
-
-        nearest_robot_2_bench42 = cal_distance(n_robots[nearest_robot_id][7][0], n_robots[nearest_robot_id][7][1],
-                                               n_benches[41][2][0], n_benches[41][2][1])
-
-        if nearest_robot_2_bench42 < m_2_bench41:
-            line_speed = 0
-
-    # 防止把另一个更靠近42的工作台挤死
-    if 47 <= robot_loc[0] and robot_loc[1] <= 3:
-        m_2_bench42 = cal_distance(robot_loc[0], robot_loc[1], n_benches[42][2][0], n_benches[42][2][1])
-
-        nearest_robot_2_bench42 = cal_distance(n_robots[nearest_robot_id][7][0], n_robots[nearest_robot_id][7][1],
-                                               n_benches[42][2][0], n_benches[42][2][1])
-
-        if nearest_robot_2_bench42 < m_2_bench42:
-            line_speed = 0
-
-    # 防止把另一个更靠近0的工作台挤死
-    if robot_loc[1] >= 48 and robot_angle > 0:
-        m_2_bench42 = cal_distance(robot_loc[0], robot_loc[1], n_benches[0][2][0], n_benches[0][2][1])
-
-        nearest_robot_2_bench42 = cal_distance(n_robots[nearest_robot_id][7][0], n_robots[nearest_robot_id][7][1],
-                                               n_benches[0][2][0], n_benches[0][2][1])
-
-        if nearest_robot_2_bench42 < m_2_bench42:
-            line_speed = 0
 
     return [line_speed, angle_speed]
 
@@ -410,7 +380,7 @@ def task_process_1():
                     if n_each_lack_num[k] > 0:
                         # 因为n_done_bench这个字典的值是列表类型，所以需要遍历一个个取
                         for bench in v:
-                            weight = [0, 1, 1, 1, 1, 1, 1, 1]
+                            weight = [0, 1, 1, 1, 1, 1, 6, 8]
                             weight = weight[n_benches[bench[0]][1]]
                             l_d_m.append([cal_distance(n_robots[robot_id][7][0],
                                                        n_robots[robot_id][7][1],
@@ -511,13 +481,15 @@ def map_1_main():
     each_bench_distance = []
     while True:
         # 第一个必须由外面的循环读取，否则不能判断是否已经结束
-        # start_time = time.perf_counter()
+        start_time = time.perf_counter()
         line = sys.stdin.readline()
         if not line:
             break
         parts = line.split(' ')
         global frame_id
         frame_id = int(parts[0])
+        end_time = time.perf_counter()
+        test_write_file('{}帧使用时间为：{}ms'.format(frame_id, (end_time - start_time) * 1000))
         # 读取信息并得到当前工作台和机器人的状态信息
         global n_benches, n_robots
         n_benches, n_robots = read_status()
@@ -528,10 +500,12 @@ def map_1_main():
         # 处理好每一帧需要的4个数据
         global n_type_lack, n_robot_carry, n_each_lack, n_done_bench, n_each_lack_num
         n_type_lack, n_robot_carry, n_each_lack, n_done_bench, n_each_lack_num = init_frame()
+
         # 这一帧每个机器人应该执行的操作
         #  设置直接忽略123工作台加工时间的地图
         # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
-        n_each_robot_act = task_process_1()
+        # n_each_robot_act = task_process_1()
+        n_each_robot_act = [[0, 0, -1] for _ in range(4)]
         sys.stdout.write('%d\n' % frame_id)
         for ind, act in enumerate(n_each_robot_act):
             sys.stdout.write('forward %d %f\n' % (ind, act[0]))
@@ -543,8 +517,7 @@ def map_1_main():
                 sys.stdout.write('sell %d \n' % ind)
 
         # view_robot_status(2200, 2250, n_each_robot_act)
-        # end_time = time.perf_counter()
-        # test_write_file('这一帧使用时间为：{}ms'.format((end_time - start_time) * 1000))
+
         finish()
 
 

@@ -12,7 +12,7 @@ def read_map_util_ok():
     t_input = input()
     while t_input != "OK":
         for i in t_input:
-            if i != '.':
+            if i != '.'and i !='#':
                 s += i
         t_input = input()
     return s
@@ -40,8 +40,8 @@ def finish():
 # 地图2：123132132AAAA56465478
 # 地图3：71233AAAA4564568112233
 # 地图4：912312544A5545A45666666455563652415546565A64A566661236
-which_map = {'1555559555A777A59787944A777A6644449666644466623': 1, '656712233A581A4A185A332217656': 2, '355555124446666124436A166A9AA6443642666212434533554551': 3,
-             '7111222333565656AAAA84': 4}
+which_map = {'521326994112342AA33564478A9987883123A5446': 1, '62543A1AAA78': 2, '121AA324A37685A99': 3,
+             '65A4A122287144124222218AA63355': 4}
 
 
 if __name__ == '__main__':
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     map_mark = read_map_util_ok()
     finish()
     # 每一次与判题器交互后都要输出ok并flush
-    if which_map[map_mark] in [1, 8]:
+    if which_map[map_mark] == 1:
         map_1_main()
     elif which_map[map_mark] == 2:
         map_2_main()
