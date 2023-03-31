@@ -3,7 +3,26 @@ import heapq
 import math
 import sys
 from collections import defaultdict
+import numpy as np
 
+
+class PIDController:
+    def __init__(self, Kp, Ki, Kd, max_output, max_integral):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+        self.max_output = max_output
+        self.integral = 0
+        self.previous_error = 0
+
+    def control(self, error, dt):
+        self.integral += error * dt
+        self.integral = max(min(self.integral, self.max_integral), -self.max_integral)
+        derivative = (error - self.previous_error) / dt if dt > 0 else 0
+        output = self.Kp * error + self.Ki * self.integral + self.Kd * derivative
+        output = max(min(output, self.max_output), -self.max_output)
+        self.previous_error = error
+        return output
 
 # 读取每一帧的状态
 def read_status():
@@ -155,107 +174,15 @@ def pre_carried_robot_tar_bench(robot_id, assumption_carry):
     return asumption_target_bench
 
 
-# 给定两个机器人的id，判断在接下来的4秒内他们是否会相撞
-def simple_dwa(r_id1, r_id2):
-    # 简单的运动学模型，xy坐标，速度，角速度，与x轴正方向的夹角
-    # 返回20ms后的xy坐标，速度，角速度，与x轴正方向的夹角
-    def KinematicModel(x, y, v, w, theta):
-        x = x + v * math.cos(theta) * 0.02
-        y = y + v * math.sin(theta) * 0.02
-        theta = theta + w * 0.02
-        return x, y, v, w, theta
-
-    # 计算机器人1在1s，也就是100个20ms之内的额所有状态点
-    x1, y1 = n_robots[r_id1][7]
-    v1 = math.sqrt(n_robots[r_id1][5][0] ** 2 + n_robots[r_id1][5][1] ** 2)
-    w1 = n_robots[r_id1][4]
-    theta1 = n_robots[r_id1][6]
-    r1_locations = [[x1, y1]]
-    for i in range(150):
-        x1, y1, v1, w1, theta1 = KinematicModel(x1, y1, v1, w1, theta1)
-        r1_locations.append([x1, y1])
-
-    # 计算机器人2在1s，也就是50个20ms之内的额所有状态点
-    x2, y2 = n_robots[r_id2][7]
-    v2 = math.sqrt(n_robots[r_id2][5][0] ** 2 + n_robots[r_id2][5][1] ** 2)
-    w2 = n_robots[r_id2][4]
-    theta2 = n_robots[r_id2][6]
-    r2_locations = [[x2, y2]]
-    for i in range(150):
-        x2, y2, v2, w2, theta2 = KinematicModel(x2, y2, v2, w2, theta2)
-        r2_locations.append([x2, y2])
-
-    # 计算是否会碰撞，即计算之间的距离最近是否超过了二者半径和
-    # 有一个带了东西
-    if (n_robots[r_id1][1] != 0 and n_robots[r_id2][1] == 0) or (n_robots[r_id2][1] != 0 and n_robots[r_id1][1] == 0):
-        collision_r = 0.98
-    # 都没带
-    elif n_robots[r_id1][1] == 0 and n_robots[r_id2][1] == 0:
-        collision_r = 0.9
-    # 都带了
-    else:
-        collision_r = 1.06
-    collision = False
-    for i in range(len(r1_locations)):
-        if cal_distance(r1_locations[i][0], r1_locations[i][1], r2_locations[i][0], r2_locations[i][1]) <= collision_r:
-            collision = True
-            break
-    return collision
-
-
-# 如果检测出来要相撞，如何转向
-def decide_angle_speed(m_id, nearest_id):
-    # 距离最近的那个机器人指向这个机器人的向量
-    v_1 = [n_robots[m_id][7][0] - n_robots[nearest_id][7][0],
-           n_robots[m_id][7][1] - n_robots[nearest_id][7][1]]
-    quadrant = 1
-    if v_1[0] >= 0:
-        if v_1[1] > 0:
-            quadrant = 1
-        else:
-            quadrant = 4
-    else:
-        if v_1[1] > 0:
-            quadrant = 2
-        else:
-            quadrant = 3
-    # 计算最近机器人指向我的向量与x轴正方向的夹角alpha
-    alpha = math.atan2(v_1[1], v_1[0])
-    # 离我最近的机器人朝向theta
-    theta = n_robots[nearest_id][6]
-    re_angle_speed = 0
-    if quadrant == 1:
-        if -1 * math.pi / 2 <= theta <= alpha:
-            re_angle_speed = -3.4
-        if alpha <= theta <= math.pi:
-            re_angle_speed = 3.4
-    elif quadrant == 4:
-        if alpha <= theta <= math.pi / 2:
-            re_angle_speed = 3.4
-        if -1 * math.pi <= theta <= alpha:
-            re_angle_speed = -3.4
-    elif quadrant == 3:
-        if alpha <= theta <= 0:
-            re_angle_speed = 3.4
-        if -1 * math.pi <= theta <= 0 or math.pi / 2 <= theta <= math.pi:
-            re_angle_speed = -3.4
-    else:
-        if 0 <= theta <= alpha:
-            re_angle_speed = -3.4
-        elif -1 * math.pi <= theta <= -1 * math.pi / 2 or alpha <= theta <= math.pi:
-            re_angle_speed = 3.4
-    return re_angle_speed
-
-
-def cell2loc(row, col):
+def cell2loc(cell_x, cell_y):
     """
     :param x: 方格行数
     :param y: 方格列数
     :return: 方格的中心坐标
 
     """
-    x = 0.25 + 0.5 * col
-    y = 0.25 + 0.5 * row
+    x = 0.25 + 0.5 * cell_x
+    y = 0.25 + 0.5 * cell_y
     return x, y
 
 
@@ -266,84 +193,47 @@ def loc2cell(x, y):
     :return: （row,column）,方格坐标
 
     """
-    row = math.ceil(2 * y) - 1
-    column = math.ceil(2 * x) - 1
-    return row, column
+    cell_x = math.ceil(2 * x) - 1
+    cell_y = math.ceil(2 * y) - 1
+    return cell_x, cell_y
 
 
-# 专门计算地图一的运动控制
-def map_1_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
-    r_x, r_y = robot_loc[0], robot_loc[1]
+# 通过pid来控制机器人运动，只需要传进机器人的id即可
+def PID_instruct(robot_id):
+    # 每一次控制是20ms
+    dt = 0.02
+    if each_robot_step[robot_id] < len(each_robot_path[robot_id]):
+        x_target, y_target = each_robot_path[robot_id][each_robot_step[robot_id]]
+        x_target, y_target = cell2loc(x_target, y_target)
+        n_x, n_y = n_robots[robot_id][7][0], n_robots[robot_id][7][1]
+        distance_error = math.sqrt(
+            (x_target - n_x) ** 2 + (y_target - n_y) ** 2)
+        if distance_error < 0.05:
+            each_robot_step[robot_id] += 1
+            return 0, 0
+        angle_to_target = math.atan2(y_target - n_y, x_target - n_x)
+        angle_error = angle_to_target - n_robots[robot_id][6]
+        if angle_error > math.pi:
+            angle_error -= 2 * math.pi
+        elif angle_error < -math.pi:
+            angle_error += 2 * math.pi
 
-    b_x, b_y = get_robot_next_loc(robot_id)
-
-    r2b = [b_x - r_x, b_y - r_y]  # 机器人指向工作台的向量，目标就是把机器人的速度矢量掰过来
-    r2b_a = math.atan2(r2b[1], r2b[0])  # 当前机器人与目标工作台向量与x轴正方向的夹角
-    distance = math.sqrt((r_x - b_x) ** 2 + (r_y - b_y) ** 2)  # 当前机器人与工作台的距离
-    or_angle_value = 1
-    # 默认线速度和角速度
-    line_speed = 0
-    angle_speed = 3.4
-    # 简单角速度约束，防止蛇形走位
-    if r2b_a >= 0 and robot_angle >= 0:
-        if robot_angle >= r2b_a:
-            angle_speed = -1 * or_angle_value
-        elif robot_angle < r2b_a:
-            angle_speed = or_angle_value
-    elif r2b_a <= 0 and robot_angle <= 0:
-        if robot_angle >= r2b_a:
-            angle_speed = -or_angle_value
-        elif robot_angle < r2b_a:
-            angle_speed = or_angle_value
-    elif r2b_a <= 0 and robot_angle >= 0:
-        if abs(r2b_a) + abs(robot_angle) <= math.pi:
-            angle_speed = -or_angle_value
-        else:
-            angle_speed = or_angle_value
+        v = each_robot_pid[robot_id][0].control(distance_error, dt)
+        w = each_robot_pid[robot_id][1].control(angle_error, dt)
+        test_write_file(
+            '{}号机器人目标是：{},pid给定的v:{},w:{}'.format(robot_id, each_robot_path[robot_id][each_robot_step[robot_id]], v, w))
+        w = w % (2 * np.pi)
+        if w > np.pi:
+            w -= 2 * np.pi
+        return v, w
     else:
-        if abs(r2b_a) + abs(robot_angle) <= math.pi:
-            angle_speed = or_angle_value
-        else:
-            angle_speed = -or_angle_value
-
-    # # 地图边界约束，防止撞墙
-    # if (distance <= 5 or (r_x <= 1 or r_x >= 49 or r_y <= 1 or r_y >= 49)) and abs(
-    #         robot_angle - r2b_a) >= 1.5:
-    #     line_speed = 0
-
-    # 距离目标距离对线速度的约束，防止打转
-    # if distance <= 4 and 17 <= robot_loc[0] <= 40 and 10 <= robot_loc[1] <= 40:
-    #     if abs(robot_angle - r2b_a) >= 1.56:
-    #         line_speed = 0
-    #     if distance <= 1:
-    #         if abs(robot_angle - r2b_a) >= 0.78:
-    #             line_speed = 0
-
-    # 计算距离我最近的小球的id以及之间的距离
-    nearest_robot_id = -1
-    nearest_distance = float('inf')
-    for r_i in range(4):
-        if r_i != robot_id:
-            t = cal_distance(robot_loc[0], robot_loc[1], n_robots[r_i][7][0], n_robots[r_i][7][1])
-            if t < nearest_distance:
-                nearest_robot_id = r_i
-                nearest_distance = t
-
-    # 使用简单的避障方式避障
-    use_simple_collision_avoidance = False
-    if use_simple_collision_avoidance:
-        warning_distance = 2
-        # 防止机器人之间的碰撞
-        if nearest_distance <= warning_distance:
-            if simple_dwa(robot_id, nearest_robot_id) and robot_id > nearest_robot_id:
-                angle_speed = decide_angle_speed(robot_id, nearest_robot_id)
-    # test_write_file('{}机器人的线速度是：{}'.format(robot_id, line_speed))
-    return [line_speed, angle_speed]
+        return 0, 0
 
 
 # 将四个地图的运动控制完全分开
 def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
-    return map_1_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id)
+    # return map_1_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id)
+    return PID_instruct(robot_id)
 
 
 each_not_carry_robot_toward_bench = [-1] * 4  # 所有身上没有背着东西的机器人准备去的工作台序号，-1表示没有
@@ -380,6 +270,10 @@ def task_process_1():
                         path = get_path((r_x_c, r_y_c), (b_x_c, b_y_c))
                         each_robot_path[robot_id] = path
                         each_robot_step[robot_id] = 0
+                        # 将pid重新置零
+                        each_robot_pid[robot_id][0].last_error = 0
+                        each_robot_pid[robot_id][1].integral = 0
+
 
                 else:
                     # r_instruct_是计算出来的机器人需要执行的命令
@@ -419,6 +313,10 @@ def task_process_1():
                         path = get_path((r_x_c, r_y_c), (b_x_c, b_y_c))
                         each_robot_path[robot_id] = path
                         each_robot_step[robot_id] = 0
+                        # 将pid重新置零
+                        each_robot_pid[robot_id][0].last_error = 0
+                        each_robot_pid[robot_id][1].integral = 0
+                        test_write_file('{}号机器人的路径为：{}'.format(robot_id, path))
 
                     # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
                     if each_not_carry_robot_toward_bench[robot_id] != -1 and \
@@ -499,12 +397,6 @@ def view_robot_status(start, end, n_each_robot_act):
 
 
 # 路线规划
-"""
-Env 2D
-@author: huiming zhou
-"""
-
-
 class Env:
     def __init__(self, obs):
         self.x_range = 100  # size of background
@@ -724,32 +616,21 @@ def get_path(s_start, s_goal):
     # test_write_file('开始路径规划，起点为{}，终点为：{}，障碍物为：{}'.format(s_start, s_goal, m1_env.obs))
     astar = AStar(s_start, s_goal, "euclidean", env=m1_env)
     path, visited = astar.searching()
-    test_write_file('路径为：{}'.format(path))
     return path[::-1]
 
 
+# 每一个机器人被规划出来的路径
 each_robot_path = [[], [], [], []]
+# step就是规划出来的路径的索引，当路径生成后-1将变成0
 each_robot_step = [-1, -1, -1, -1]
-
-
-def get_robot_next_loc(robot_id):
-    now_robot_cell = loc2cell(n_robots[robot_id][0], n_robots[robot_id][1])
-    if now_robot_cell in each_robot_path[robot_id]:
-        each_robot_step[robot_id] += 1
-        if each_robot_step[robot_id]<each_robot_path[robot_id]:
-            return cell2loc(each_robot_path[robot_id][each_robot_step[robot_id]][0],each_robot_path[robot_id][each_robot_step[robot_id]][1])
-        else:
-            return cell2loc(each_robot_path[robot_id][-1][0],each_robot_path[robot_id][-1][1])
-    else:
-        return cell2loc(each_robot_path[robot_id][0][0],each_robot_path[robot_id][0][1])
-
+# 每一个机器人对应的pid控制器，每一个机器人有一对，分别控制线速度v和角速度w
+each_robot_pid = [[PIDController(1, 0, 0), PIDController(0.1, 0.01, 0.01)] for _ in range(4)]
 
 
 def map_1_main(m1_obs):
     # 路径规划相关参数
     global obs
     obs = m1_obs
-
     # each_bench_distance[i][j] 表示工作台i到工作台j的距离
     global each_bench_distance
     each_bench_distance = []
@@ -778,6 +659,7 @@ def map_1_main(m1_obs):
         #  设置直接忽略123工作台加工时间的地图
         # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
         n_each_robot_act = task_process_1()
+        # test_write_file('n_each_act:{}'.format(n_each_robot_act))
         # end_time = time.perf_counter()
         # test_write_file('{}帧使用时间为：{}ms'.format(frame_id, (end_time - start_time) * 1000))
         sys.stdout.write('%d\n' % frame_id)

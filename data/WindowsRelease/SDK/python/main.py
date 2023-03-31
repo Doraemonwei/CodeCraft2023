@@ -10,7 +10,7 @@ from map_4_procedure import map_4_main
 # 初始化地图，得到所有工作台和机器人的坐标以及序号
 def read_map_util_ok():
     s = ''
-    row = 99
+    cell_y = 99
     obs = set()
     t_input = input()
     while t_input != "OK":
@@ -20,9 +20,9 @@ def read_map_util_ok():
             if i == '#':
                 # if (ind, column) == (24, 60):
                 #     test_write_file('错了你妈的')
-                obs.add((row, ind))
+                obs.add((ind, cell_y))
         t_input = input()
-        row -= 1
+        cell_y -= 1
     return s, obs
 
 
