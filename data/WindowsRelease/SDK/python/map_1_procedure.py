@@ -1,26 +1,7 @@
 #!/bin/bash
-import heapq
 import math
 import sys
 from collections import defaultdict
-
-import numpy as np
-
-
-class PIDController:
-    def __init__(self, kp, ki, kd):
-        self.kp = kp
-        self.ki = ki
-        self.kd = kd
-        self.last_error = 0
-        self.integral = 0
-
-    def control(self, error, dt):
-        self.integral += error * dt
-        derivative = (error - self.last_error) / dt
-        output = self.kp * error + self.ki * self.integral + self.kd * derivative
-        self.last_error = error
-        return output
 
 
 # 读取每一帧的状态
@@ -104,7 +85,6 @@ def init_frame():
         if bench[1] not in [8, 9]:
             if bench[5] == 1:
                 done_bench[bench[1]].append([bench[0], bench[2]])
-        # test_write_file('done_bench:{}'.format(done_bench))
     robot_carry = [0] * 10  # 9种材料，哪些被机器人带着的
 
     each_lack_num = [0] * 8  # 1-7，  7种材料分别实际还缺多少
@@ -132,47 +112,6 @@ def init_frame():
     return type_lack, robot_carry, each_lack, done_bench, each_lack_num
 
 
-# 传入机器人id和假设的放在它身上的货品类型，返回这种假设下它应该去的工作台id
-def pre_carried_robot_tar_bench(robot_id, assumption_carry):
-    # 如果当前机器人没有携带物品就将假设的这个物品给他
-    if n_robots[robot_id][1] == 0:
-        material_type = assumption_carry
-    else:
-        material_type = n_robots[robot_id][1]
-    need_robot_id_type_m_benches = []  # 所有需要0号机器人背上材料的工作台[[add_weight_distance, bench_id]],加权距离，工作台id
-    for bench in n_each_lack[material_type]:
-        # weight是权重
-        weight = 2 ** bench[2]
-        need_robot_id_type_m_benches.append([cal_distance(n_robots[robot_id][7][0],
-                                                          n_robots[robot_id][7][1],
-                                                          bench[1][0],
-                                                          bench[1][1]) / weight,
-                                             bench[0]])
-    need_robot_id_type_m_benches.sort()  # 按照加权距离进行排序
-    # test_write_file(need_robot_id_type_m_benches)
-    # 我的目标点应该是哪个工作台
-    asumption_target_bench = 10000
-    for bench in need_robot_id_type_m_benches:
-        flag = False
-        for i in range(4):
-            if i == robot_id:
-                continue
-            else:
-                # n_robots[i][1] == material_type   不是 n_robots[i][1] == n_robots[robot_id][1] ,因为这里是假设的
-                if each_carry_robot_toward_bench[i] == bench[1] and n_robots[i][1] == material_type and \
-                        n_benches[bench[1]][1] not in [9, 8]:
-                    flag = True
-                    break
-        if flag:
-            continue
-        else:
-            asumption_target_bench = bench[1]
-            break
-
-    # test_write_file('需要{}类材料的工作台有：{}，{}选择的工作台是：{}'.format(material_type,need_robot_id_type_m_benches, robot_id,asumption_target_bench))
-    return asumption_target_bench
-
-
 def cell2loc(cell_x, cell_y):
     """
     :param x: 方格行数
@@ -197,34 +136,62 @@ def loc2cell(x, y):
     return cell_x, cell_y
 
 
-# 通过pid来控制机器人运动，只需要传进机器人的id即可
-def PID_instruct(robot_id):
-    # 每一次控制是20ms
-    dt = 0.02
+# 使用原来的的最简单的控制小车的方式
+def traditional_instruct(robot_id):
+    test_write_file("{}号小车的整个轨迹为：{}".format(robot_id, each_robot_path[robot_id]))
     if each_robot_step[robot_id] < len(each_robot_path[robot_id]):
         x_target, y_target = each_robot_path[robot_id][each_robot_step[robot_id]]
+        # 将格子转换成实际的坐标
         x_target, y_target = cell2loc(x_target, y_target)
+        # 现在机器人的实际坐标
         n_x, n_y = n_robots[robot_id][7][0], n_robots[robot_id][7][1]
+        # test_write_file('3号工作台的信息：{}'.format(n_benches[3]))
+        test_write_file(
+            '当前小车的坐标为：{}，目标格子：{}，格子实际坐标：{}'.format([n_x, n_y], each_robot_path[robot_id][each_robot_step[robot_id]],
+                                                   [x_target, y_target]))
         distance_error = math.sqrt(
             (x_target - n_x) ** 2 + (y_target - n_y) ** 2)
-        if distance_error < 0.05:
+        if distance_error < 0.3:
             each_robot_step[robot_id] += 1
             return 0, 0
-        angle_to_target = math.atan2(y_target - n_y, x_target - n_x)
-        angle_error = angle_to_target - n_robots[robot_id][6]
-        if angle_error > math.pi:
-            angle_error -= 2 * math.pi
-        elif angle_error < -math.pi:
-            angle_error += 2 * math.pi
+        # 当前机器人与目标工作台向量与x轴正方向的夹角
+        r2b_a = math.atan2(y_target - n_y, x_target - n_x)
+        robot_angle = n_robots[robot_id][6]
+        or_angle_value = abs(robot_angle - r2b_a) * 50
 
-        v = each_robot_pid[robot_id][0].control(distance_error, dt)
-        w = each_robot_pid[robot_id][1].control(angle_error, dt)
-        test_write_file(
-            '{}号机器人目标是：{},pid给定的v:{},w:{}'.format(robot_id, each_robot_path[robot_id][each_robot_step[robot_id]], v, w))
-        w = w % (2 * np.pi)
-        if w > np.pi:
-            w -= 2 * np.pi
-        return v, w
+        # 默认线速度和角速度
+        line_speed = 6
+        angle_speed = 0
+        # 简单角速度约束，防止蛇形走位
+        if r2b_a >= 0 and robot_angle >= 0:
+            if robot_angle >= r2b_a:
+                angle_speed = -1 * or_angle_value
+            elif robot_angle < r2b_a:
+                angle_speed = or_angle_value
+        elif r2b_a <= 0 and robot_angle <= 0:
+            if robot_angle >= r2b_a:
+                angle_speed = -or_angle_value
+            elif robot_angle < r2b_a:
+                angle_speed = or_angle_value
+        elif r2b_a <= 0 and robot_angle >= 0:
+            if abs(r2b_a) + abs(robot_angle) <= math.pi:
+                angle_speed = -or_angle_value
+            else:
+                angle_speed = or_angle_value
+        else:
+            if abs(r2b_a) + abs(robot_angle) <= math.pi:
+                angle_speed = or_angle_value
+            else:
+                angle_speed = -or_angle_value
+        # 距离目标距离对线速度的约束，防止打转
+        if distance_error <= 4.5:
+            if abs(robot_angle - r2b_a) >= 1.56:
+                line_speed = 1.1
+            if distance_error <= 1:
+                if abs(robot_angle - r2b_a) >= 1.56:
+                    line_speed = 0
+        return line_speed, angle_speed
+
     else:
         return 0, 0
 
@@ -232,11 +199,17 @@ def PID_instruct(robot_id):
 # 将四个地图的运动控制完全分开
 def cal_instruct_1(is_carry, robot_loc, robot_angle, bench_loc, robot_id):
     # return map_1_instruct(is_carry, robot_loc, robot_angle, bench_loc, robot_id)
-    return PID_instruct(robot_id)
+    # return PID_instruct(robot_id)
+    return traditional_instruct(robot_id)
 
 
 each_not_carry_robot_toward_bench = [-1] * 4  # 所有身上没有背着东西的机器人准备去的工作台序号，-1表示没有
 each_carry_robot_toward_bench = [-1] * 4  # 所有身上带着东西的机器人准备去的工作台序号，-1表示没有
+
+# 每一个机器人被规划出来的路径
+each_robot_path = [[], [], [], []]
+# step就是规划出来的路径的索引，当路径生成后-1将变成0
+each_robot_step = [-1, -1, -1, -1]
 
 
 # 空车时直接拿  机器人到成品距离+将成品运送到目标工作台距离最近的那个
@@ -247,102 +220,10 @@ def task_process_1():
     for robot_id in range(4):
         # 如果机器人身上没有背东西
         if n_robots[robot_id][1] == 0:
-            if each_not_carry_robot_toward_bench[robot_id] != -1:
-                if each_not_carry_robot_toward_bench[robot_id] == n_robots[robot_id][0]:
-                    assumption_bench = pre_carried_robot_tar_bench(robot_id, n_benches[n_robots[robot_id][0]][1])
-                    # test_write_file(assumption_bench)
-                    pre_time = cal_distance(n_robots[robot_id][7][0], n_robots[robot_id][7][1],
-                                            n_benches[assumption_bench][2][0],
-                                            n_benches[assumption_bench][2][1]) / 6
-                    pre_frame = pre_time * 50
-                    # 只有当时间足够卖掉是才会购买
-                    if frame_id + pre_frame <= 9000:
-                        each_robot_act[robot_id][2] = 0  # 购买
-                        each_not_carry_robot_toward_bench[robot_id] = -1  # 购买之后，0号机器人就不在抢占这个工作台了
-                        each_carry_robot_toward_bench[robot_id] = assumption_bench  # 购买之后立刻指定目标工作台id
-                        n_robots[robot_id][1] = n_benches[n_robots[robot_id][0]][1]
-                        r_x, r_y = n_robots[robot_id][7]
-                        b_x, b_y = n_benches[assumption_bench][2]
-                        r_x_c, r_y_c = loc2cell(r_x, r_y)
-                        b_x_c, b_y_c = loc2cell(b_x, b_y)
-                        # test_write_file('坐标为：{}，转换后cell为')
-                        path = get_path((r_x_c, r_y_c), (b_x_c, b_y_c))
-                        each_robot_path[robot_id] = path
-                        each_robot_step[robot_id] = 0
-                        # 将pid重新置零
-                        each_robot_pid[robot_id][0].last_error = 0
-                        each_robot_pid[robot_id][1].integral = 0
+            pass
 
-
-                else:
-                    # r_instruct_是计算出来的机器人需要执行的命令
-                    r_instruct = cal_instruct_1(0,
-                                                n_robots[robot_id][7],
-                                                n_robots[robot_id][6],
-                                                n_benches[each_not_carry_robot_toward_bench[robot_id]][2],
-                                                robot_id)
-                    each_robot_act[robot_id][0] = r_instruct[0]  # 线速度
-                    each_robot_act[robot_id][1] = r_instruct[1]  # 角速度
-            else:
-                # 首先把所有缺的物品对应的已经生产好了的工作台放到列表中，注意，可能这个列表为空。因为可能这个缺的物品一个都没有生产出来
-                l_d_m = []  # 缺少的但是已经做好了的物品对应的工作台，这个工作台的与1号机器人的距离和这个工作台的id
-                for k, v in n_done_bench.items():
-                    if n_each_lack_num[k] > 0:
-                        # 因为n_done_bench这个字典的值是列表类型，所以需要遍历一个个取
-                        for bench in v:
-                            weight = [0, 1, 1, 1, 1, 1, 6, 8]
-                            weight = weight[n_benches[bench[0]][1]]
-                            l_d_m.append([cal_distance(n_robots[robot_id][7][0],
-                                                       n_robots[robot_id][7][1],
-                                                       bench[1][0],
-                                                       bench[1][1]) / weight, bench[0]])
-                # 如果已经有缺少的成品被生产出来了再进行下面的操作，否则就直接不改变默认的速度设定，也就是全0
-                if l_d_m:
-                    l_d_m.sort()  # 按照距离从小到大排序，取第一个没有被其他机器人抢占的工作台，除非这个工作台是123
-                    for dis, bench_id in l_d_m:
-                        if bench_id not in each_not_carry_robot_toward_bench or n_benches[bench_id][1] in [1, 2, 3]:
-                            # if bench_id not in each_not_carry_robot_toward_bench:
-                            each_not_carry_robot_toward_bench[robot_id] = bench_id
-                            break
-                    if each_not_carry_robot_toward_bench[robot_id] != -1:
-                        r_x, r_y = n_robots[robot_id][7][0], n_robots[robot_id][7][1]
-                        b_x, b_y = n_benches[each_not_carry_robot_toward_bench[robot_id]][2]
-                        r_x_c, r_y_c = loc2cell(r_x, r_y)
-                        b_x_c, b_y_c = loc2cell(b_x, b_y)
-                        path = get_path((r_x_c, r_y_c), (b_x_c, b_y_c))
-                        each_robot_path[robot_id] = path
-                        each_robot_step[robot_id] = 0
-                        # 将pid重新置零
-                        each_robot_pid[robot_id][0].last_error = 0
-                        each_robot_pid[robot_id][1].integral = 0
-                        test_write_file('{}号机器人的路径为：{}'.format(robot_id, path))
-
-                    # 如果有缺的被生产好了，这个机器人要去这个工作台生产的材料需求-1
-                    if each_not_carry_robot_toward_bench[robot_id] != -1 and \
-                            n_benches[each_not_carry_robot_toward_bench[robot_id]][1] not in [8, 9]:
-                        n_each_lack_num[n_benches[each_not_carry_robot_toward_bench[robot_id]][1]] -= 1
         else:
-            # 机器人身上有，说明一定有工作台需要
-            if n_robots[robot_id][0] != -1 and n_robots[robot_id][0] == each_carry_robot_toward_bench[robot_id]:
-                each_robot_act[robot_id][2] = 1  # 卖出
-                each_carry_robot_toward_bench[robot_id] = -1  # 卖了之后就取消该号机器人对该工作台的抢占
-                each_not_carry_robot_toward_bench[robot_id] = -1  # 卖掉之后我就是没有目标的了
-                # 卖掉之后这个工作台就不缺这个材料了，极限条件下，0号刚卖1号并解除了自己对这个工作台的抢占，同一帧1号就买同种材料，极有可能指向同一个工作台！
-                wait_for_del = 100000  # 初始化再也不写-1了，老是倒着删除
-                for ind, v in enumerate(n_each_lack[n_robots[robot_id][1]]):
-                    if v[0] == n_robots[robot_id][0]:
-                        wait_for_del = ind
-                        break
-                n_each_lack[n_robots[robot_id][1]].pop(wait_for_del)
-            # 如果这个机器人不能与目标工作台交易，则向他移动
-            else:
-                r_instruct = cal_instruct_1(1,
-                                            n_robots[robot_id][7],
-                                            n_robots[robot_id][6],
-                                            n_benches[each_carry_robot_toward_bench[robot_id]][2],
-                                            robot_id)
-                each_robot_act[robot_id][0] = r_instruct[0]  # 线速度
-                each_robot_act[robot_id][1] = r_instruct[1]  # 角速度
+            pass
     return each_robot_act
 
 
@@ -395,244 +276,7 @@ def view_robot_status(start, end, n_each_robot_act):
             test_write_file('给这个机器人的指令是：{}'.format(n_each_robot_act[i]))
 
 
-# 路线规划
-class Env:
-    def __init__(self, obs):
-        self.x_range = 100  # size of background
-        self.y_range = 100
-        self.motions = [(-1, 0), (0, 1),
-                        (1, 0), (0, -1)]
-        self.obs = obs
-
-    def update_obs(self, obs):
-        self.obs = obs
-        return obs
-
-
-class AStar:
-    """AStar set the cost + heuristics as the priority
-    """
-
-    def __init__(self, s_start, s_goal, heuristic_type, env):
-        self.s_start = s_start
-        self.s_goal = s_goal
-        self.heuristic_type = heuristic_type
-
-        self.Env = env  # class Env
-
-        self.u_set = self.Env.motions  # feasible input set
-        self.obs = self.Env.obs  # position of obstacles
-
-        self.OPEN = []  # priority queue / OPEN set
-        self.CLOSED = []  # CLOSED set / VISITED order
-        self.PARENT = dict()  # recorded parent
-        self.g = dict()  # cost to come
-
-    def searching(self):
-        """
-        A_star Searching.
-        :return: path, visited order
-        """
-
-        self.PARENT[self.s_start] = self.s_start
-        self.g[self.s_start] = 0
-        self.g[self.s_goal] = math.inf
-        heapq.heappush(self.OPEN,
-                       (self.f_value(self.s_start), self.s_start))
-        num = 0
-        while self.OPEN:
-            _, s = heapq.heappop(self.OPEN)
-            self.CLOSED.append(s)
-            if s == self.s_goal:  # stop condition
-                break
-            for s_n in self.get_neighbor(s):
-                new_cost = self.g[s] + self.cost(s, s_n)
-                if s_n not in self.g:
-                    self.g[s_n] = math.inf
-                if new_cost < self.g[s_n]:  # conditions for updating Cost
-                    self.g[s_n] = new_cost
-                    self.PARENT[s_n] = s
-                    heapq.heappush(self.OPEN, (self.f_value(s_n), s_n))
-            num += 1
-
-        return self.extract_path(self.PARENT), self.CLOSED
-
-    def searching_repeated_astar(self, e):
-        """
-        repeated A*.
-        :param e: weight of A*
-        :return: path and visited order
-        """
-
-        path, visited = [], []
-
-        while e >= 1:
-            p_k, v_k = self.repeated_searching(self.s_start, self.s_goal, e)
-            path.append(p_k)
-            visited.append(v_k)
-            e -= 0.5
-
-        return path, visited
-
-    def repeated_searching(self, s_start, s_goal, e):
-        """
-        run A* with weight e.
-        :param s_start: starting state
-        :param s_goal: goal state
-        :param e: weight of a*
-        :return: path and visited order.
-        """
-
-        g = {s_start: 0, s_goal: float("inf")}
-        PARENT = {s_start: s_start}
-        OPEN = []
-        CLOSED = []
-        heapq.heappush(OPEN,
-                       (g[s_start] + e * self.heuristic(s_start), s_start))
-
-        while OPEN:
-            _, s = heapq.heappop(OPEN)
-            CLOSED.append(s)
-
-            if s == s_goal:
-                break
-
-            for s_n in self.get_neighbor(s):
-                new_cost = g[s] + self.cost(s, s_n)
-
-                if s_n not in g:
-                    g[s_n] = math.inf
-
-                if new_cost < g[s_n]:  # conditions for updating Cost
-                    g[s_n] = new_cost
-                    PARENT[s_n] = s
-                    heapq.heappush(OPEN, (g[s_n] + e * self.heuristic(s_n), s_n))
-
-        return self.extract_path(PARENT), CLOSED
-
-    def get_neighbor(self, s):
-        """
-        find neighbors of state s that not in obstacles.
-        :param s: state
-        :return: neighbors
-        """
-        al_points = [(s[0] + u[0], s[1] + u[1]) for u in self.u_set]
-        # 有些点因为小车的尺寸并不能到达
-        can_go = []
-        for i in al_points:
-            if ((i[0] - 1, i[1]) in self.obs and (i[0] + 1, i[1]) in self.obs) \
-                    or ((i[0], i[1] + 1) in self.obs and (i[0], i[1] - 1) in self.obs) \
-                    or ((i[0] - 1, i[1] - 1) in self.obs and (i[0] + 1, i[1] + 1) in self.obs) \
-                    or ((i[0] - 1, i[1] + 1) in self.obs and (i[0] + 1, i[1] - 1) in self.obs):
-                continue
-            else:
-                can_go.append(i)
-
-        return can_go
-
-    def cost(self, s_start, s_goal):
-        """
-        Calculate Cost for this motion
-        :param s_start: starting node
-        :param s_goal: end node
-        :return:  Cost for this motion
-        :note: Cost function could be more complicate!
-        """
-
-        if self.is_collision(s_start, s_goal):
-            return math.inf
-
-        return math.hypot(s_goal[0] - s_start[0], s_goal[1] - s_start[1])
-
-    def is_collision(self, s_start, s_end):
-        """
-        check if the line segment (s_start, s_end) is collision.
-        :param s_start: start node
-        :param s_end: end node
-        :return: True: is collision / False: not collision
-        """
-
-        if s_start in self.obs or s_end in self.obs:
-            return True
-
-        if s_start[0] != s_end[0] and s_start[1] != s_end[1]:
-            if s_end[0] - s_start[0] == s_start[1] - s_end[1]:
-                s1 = (min(s_start[0], s_end[0]), min(s_start[1], s_end[1]))
-                s2 = (max(s_start[0], s_end[0]), max(s_start[1], s_end[1]))
-            else:
-                s1 = (min(s_start[0], s_end[0]), max(s_start[1], s_end[1]))
-                s2 = (max(s_start[0], s_end[0]), min(s_start[1], s_end[1]))
-
-            if s1 in self.obs or s2 in self.obs:
-                return True
-
-        return False
-
-    def f_value(self, s):
-        """
-        f = g + h. (g: Cost to come, h: heuristic value)
-        :param s: current state
-        :return: f
-        """
-
-        return self.g[s] + self.heuristic(s)
-
-    def extract_path(self, PARENT):
-        """
-        Extract the path based on the PARENT set.
-        :return: The planning path
-        """
-        path = [self.s_goal]
-        s = self.s_goal
-        # test_write_file('开始extract_path,OARENT:{}'.format(PARENT))
-
-        while True:
-            s = PARENT[s]
-            path.append(s)
-
-            if s == self.s_start:
-                break
-
-        return list(path)
-
-    def heuristic(self, s):
-        """
-        Calculate heuristic.
-        :param s: current node (state)
-        :return: heuristic function value
-        """
-
-        heuristic_type = self.heuristic_type  # heuristic type
-        goal = self.s_goal  # goal node
-        if heuristic_type == "manhattan":
-            return abs(goal[0] - s[0]) + abs(goal[1] - s[1])
-        else:
-            return math.hypot(goal[0] - s[0], goal[1] - s[1])
-
-
-def get_path(s_start, s_goal):
-    """
-    :param s_start: 开始点方格
-    :param s_goal: 目标点方格
-    :return: 包含初始与目标方格的路径列表
-    """
-    m1_env = Env(obs)
-    s_start = s_start
-    s_goal = s_goal
-    astar = AStar(s_start, s_goal, "euclidean", env=m1_env)
-    path, visited = astar.searching()
-    return path[::-1]
-
-
-# 每一个机器人被规划出来的路径
-each_robot_path = [[], [], [], []]
-# step就是规划出来的路径的索引，当路径生成后-1将变成0
-each_robot_step = [-1, -1, -1, -1]
-# 每一个机器人对应的pid控制器，每一个机器人有一对，分别控制线速度v和角速度w
-each_robot_pid = [[PIDController(1, 0, 0), PIDController(0.1, 0.01, 0.01)] for _ in range(4)]
-
-
-def map_1_main(m1_obs):
+def map_1_main():
     # 路径规划相关参数
     global obs
     obs = m1_obs
@@ -661,12 +305,11 @@ def map_1_main(m1_obs):
         n_type_lack, n_robot_carry, n_each_lack, n_done_bench, n_each_lack_num = init_frame()
 
         # 这一帧每个机器人应该执行的操作
-        #  设置直接忽略123工作台加工时间的地图
         # 根据每一副地图在不同分配方案上的表现具体确定使用哪种分配方案
         n_each_robot_act = task_process_1()
-        # test_write_file('n_each_act:{}'.format(n_each_robot_act))
+
         # end_time = time.perf_counter()
-        # test_write_file('{}帧使用时间为：{}ms'.format(frame_id, (end_time - start_time) * 1000))
+
         sys.stdout.write('%d\n' % frame_id)
         for ind, act in enumerate(n_each_robot_act):
             sys.stdout.write('forward %d %f\n' % (ind, act[0]))
