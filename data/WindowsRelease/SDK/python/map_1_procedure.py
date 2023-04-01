@@ -3,26 +3,25 @@ import heapq
 import math
 import sys
 from collections import defaultdict
+
 import numpy as np
 
 
 class PIDController:
-    def __init__(self, Kp, Ki, Kd, max_output, max_integral):
-        self.Kp = Kp
-        self.Ki = Ki
-        self.Kd = Kd
-        self.max_output = max_output
+    def __init__(self, kp, ki, kd):
+        self.kp = kp
+        self.ki = ki
+        self.kd = kd
+        self.last_error = 0
         self.integral = 0
-        self.previous_error = 0
 
     def control(self, error, dt):
         self.integral += error * dt
-        self.integral = max(min(self.integral, self.max_integral), -self.max_integral)
-        derivative = (error - self.previous_error) / dt if dt > 0 else 0
-        output = self.Kp * error + self.Ki * self.integral + self.Kd * derivative
-        output = max(min(output, self.max_output), -self.max_output)
-        self.previous_error = error
+        derivative = (error - self.last_error) / dt
+        output = self.kp * error + self.ki * self.integral + self.kd * derivative
+        self.last_error = error
         return output
+
 
 # 读取每一帧的状态
 def read_status():
@@ -401,8 +400,8 @@ class Env:
     def __init__(self, obs):
         self.x_range = 100  # size of background
         self.y_range = 100
-        self.motions = [(-1, 0), (-1, 1), (0, 1), (1, 1),
-                        (1, 0), (1, -1), (0, -1), (-1, -1)]
+        self.motions = [(-1, 0), (0, 1),
+                        (1, 0), (0, -1)]
         self.obs = obs
 
     def update_obs(self, obs):
@@ -442,7 +441,6 @@ class AStar:
                        (self.f_value(self.s_start), self.s_start))
         num = 0
         while self.OPEN:
-
             _, s = heapq.heappop(self.OPEN)
             self.CLOSED.append(s)
             if s == self.s_goal:  # stop condition
@@ -518,8 +516,19 @@ class AStar:
         :param s: state
         :return: neighbors
         """
+        al_points = [(s[0] + u[0], s[1] + u[1]) for u in self.u_set]
+        # 有些点因为小车的尺寸并不能到达
+        can_go = []
+        for i in al_points:
+            if ((i[0] - 1, i[1]) in self.obs and (i[0] + 1, i[1]) in self.obs) \
+                    or ((i[0], i[1] + 1) in self.obs and (i[0], i[1] - 1) in self.obs) \
+                    or ((i[0] - 1, i[1] - 1) in self.obs and (i[0] + 1, i[1] + 1) in self.obs) \
+                    or ((i[0] - 1, i[1] + 1) in self.obs and (i[0] + 1, i[1] - 1) in self.obs):
+                continue
+            else:
+                can_go.append(i)
 
-        return [(s[0] + u[0], s[1] + u[1]) for u in self.u_set]
+        return can_go
 
     def cost(self, s_start, s_goal):
         """
@@ -544,7 +553,6 @@ class AStar:
         """
 
         if s_start in self.obs or s_end in self.obs:
-            # test_write_file('起点或终点在障碍物中1')
             return True
 
         if s_start[0] != s_end[0] and s_start[1] != s_end[1]:
@@ -556,7 +564,6 @@ class AStar:
                 s2 = (max(s_start[0], s_end[0]), min(s_start[1], s_end[1]))
 
             if s1 in self.obs or s2 in self.obs:
-                # test_write_file('起点或终点在障碍物中2')
                 return True
 
         return False
@@ -597,7 +604,6 @@ class AStar:
 
         heuristic_type = self.heuristic_type  # heuristic type
         goal = self.s_goal  # goal node
-
         if heuristic_type == "manhattan":
             return abs(goal[0] - s[0]) + abs(goal[1] - s[1])
         else:
@@ -613,7 +619,6 @@ def get_path(s_start, s_goal):
     m1_env = Env(obs)
     s_start = s_start
     s_goal = s_goal
-    # test_write_file('开始路径规划，起点为{}，终点为：{}，障碍物为：{}'.format(s_start, s_goal, m1_env.obs))
     astar = AStar(s_start, s_goal, "euclidean", env=m1_env)
     path, visited = astar.searching()
     return path[::-1]
@@ -671,9 +676,6 @@ def map_1_main(m1_obs):
                 sys.stdout.write('buy %d \n' % ind)
             elif act[2] == 1:
                 sys.stdout.write('sell %d \n' % ind)
-
-        # view_robot_status(2200, 2250, n_each_robot_act)
-
         finish()
 
 
