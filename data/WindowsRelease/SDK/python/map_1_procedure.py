@@ -105,6 +105,63 @@ def simple_dwa(r_id1, r_id2):
     return collision
 
 
+# 简单的转向避障
+def simple_collision_avoidance(robot_id, robot_loc, nearest_robot_id, nearest_distance, is_carry,
+                               warning_distance_carry,
+                               warning_distance_empty,
+                               angle_speed,line_speed):
+    # 判定距离设置
+    warning_distance = warning_distance_carry if is_carry else warning_distance_empty  # 这是原来的最优
+    # 防止机器人之间的碰撞
+    # if nearest_distance <= warning_distance:
+    # 这个机器人指向最近那个机器人的向量
+    vector_1 = [n_robots[nearest_robot_id][7][0] - robot_loc[0],
+                n_robots[nearest_robot_id][7][1] - robot_loc[1]]
+    # 距离最近的那个机器人指向这个机器人的向量
+    vector_2 = [robot_loc[0] - n_robots[nearest_robot_id][7][0],
+                robot_loc[1] - n_robots[nearest_robot_id][7][1]]
+    # 这个机器人与 这个机器人指向最近那个机器人的向量 之间的夹角余弦
+    m_v = n_robots[robot_id][5]  # 这个机器人的速度向量
+    t_1 = math.sqrt(m_v[0] ** 2 + m_v[1] ** 2) * math.sqrt(vector_1[0] ** 2 + vector_1[1] ** 2)
+    cos_theta_1 = (m_v[0] * vector_1[0] + m_v[1] * vector_1[1]) / t_1 if t_1 != 0 else 0
+    # 距离最近的那个机器人与 距离最近的那个机器人指向这个机器人的向量 之间的夹角
+    tar_robot_v = n_robots[nearest_robot_id][5]
+    t_2 = (math.sqrt(tar_robot_v[0] ** 2 + tar_robot_v[1] ** 2) * math.sqrt(
+        vector_2[0] ** 2 + vector_2[1] ** 2))
+    cos_theta_2 = (tar_robot_v[0] * vector_2[0] + tar_robot_v[1] * vector_2[1]) / t_2 if t_2 != 0 else 0
+    # 只要有一个小于cos_theta<=0就说明不会撞，所以只考虑都大于0的情况
+    if cos_theta_1 >= 0 and cos_theta_2 >= 0:
+        # 判定角90°对于3是挺友好的，对其他的不行
+        # judge_angle = 45 if which_map[map_mark] in [2, 3, 4] else 90
+        judge_angle = 45
+        if math.acos(cos_theta_1) + math.acos(cos_theta_2) <= (math.pi / 180) * judge_angle:
+            # 小车上下运动和左右运动是不一样的
+            #  前后运动
+            if abs(n_robots[robot_id][5][0]) >= abs(n_robots[robot_id][5][1]):
+                # y0>y1 and x0<x1      y0<y1 and x0>x1  逆时针
+                if (robot_loc[1] >= n_robots[nearest_robot_id][7][1] and robot_loc[0] <=
+                    n_robots[nearest_robot_id][7][0]) or ((
+                        robot_loc[1] <= n_robots[nearest_robot_id][7][1] and robot_loc[0] >=
+                        n_robots[nearest_robot_id][7][0])):
+                    angle_speed = 3.4
+                else:
+                    angle_speed = -3.4
+            # 上下运动
+            else:
+                if (robot_loc[1] > n_robots[nearest_robot_id][7][1] and robot_loc[0] >
+                    n_robots[nearest_robot_id][7][0]) or ((
+                        robot_loc[1] < n_robots[nearest_robot_id][7][1] and robot_loc[0] <
+                        n_robots[nearest_robot_id][7][0])):
+                    angle_speed = 3.4
+                else:
+                    angle_speed = -3.4
+    if nearest_distance<=1.07 and robot_id<nearest_robot_id:
+        line_speed = -1
+
+
+    return angle_speed,line_speed
+
+
 # 如果检测出来要相撞，如何转向
 def decide_angle_speed(m_id, nearest_id):
     # 距离最近的那个机器人指向这个机器人的向量
@@ -190,7 +247,7 @@ def traditional_instruct(robot_id):
                 angle_speed = -or_angle_value
         # 距离目标距离对线速度的约束，防止打转
         if abs(robot_angle - r2b_a) >= 0.5:
-            line_speed = -0.2
+            line_speed = 0
 
         # 简单的避撞
         # 计算距离我最近的小球的id以及之间的距离
@@ -204,13 +261,11 @@ def traditional_instruct(robot_id):
                     nearest_robot_id = r_i
                     nearest_distance = t
         # 使用简单的避障方式避障
-        use_simple_collision_avoidance = False
+        use_simple_collision_avoidance = True
         if use_simple_collision_avoidance:
-            warning_distance = 4
-            # 防止机器人之间的碰撞
-            if nearest_distance <= warning_distance:
-                if simple_dwa(robot_id, nearest_robot_id):
-                    angle_speed = decide_angle_speed(robot_id, nearest_robot_id)
+            if simple_dwa(robot_id, nearest_robot_id):
+            #     angle_speed = decide_angle_speed(robot_id, nearest_robot_id)
+                angle_speed,line_speed = simple_collision_avoidance(robot_id,n_robots[robot_id][7],nearest_robot_id,nearest_distance,0,4,4,angle_speed,line_speed)
         return line_speed, angle_speed
     else:
         return 0, 0
@@ -441,8 +496,6 @@ robot_2_target_bench = [10, 20,
                         10, 20,
                         14, 20,
                         20, 24,
-
-
                         ]
 robot_3_target_bench = [16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24,
                         16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24, 16, 24,
@@ -456,7 +509,7 @@ each_robot_target_bench_step = [0, 0, 0, -1]
 def task_process_1():
     # 返回的是每个机器人应该进行的操作，包括线速度，角速度，买卖
     each_robot_act = [[0, 0, -1] for _ in range(4)]  # 0，0表示线速度和角速度，0是买1是卖，-1是不进行买卖操作
-    for robot_id in range(3):
+    for robot_id in range(2):
         if each_robot_target_bench_step[robot_id] >= len(each_robot_target_bench[robot_id]):
             continue
         # 如果机器人身上没有背东西
